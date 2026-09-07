@@ -34,8 +34,17 @@ jobs:
       - name: Unit tests
         run: npm test
 
+      # DEBUG=pw:browser makes Playwright log every process it launches – the command line,
+      # which carries the spec's --user-data-dir, its stderr line by line, and its exit – and,
+      # at worker teardown, every process still alive. Added after the tag run of 2026-09-07 on
+      # d37f54a: 134 tests passed and the step still failed with "Worker teardown timeout of
+      # 30000ms exceeded", because a process from some test had not exited and Playwright waited
+      # for it without saying which. The same commit had passed this step on main minutes
+      # earlier and passes locally, so the next occurrence has to explain itself.
       - name: End-to-end tests
         run: npm run test:e2e
+        env:
+          DEBUG: pw:browser
 
       # The date and the commit go INTO the package, through electron-builder's extraMetadata,
       # so the packaged copy can say on its nameplate which build it is. The sources can know

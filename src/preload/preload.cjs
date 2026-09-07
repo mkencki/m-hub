@@ -34,5 +34,9 @@ contextBridge.exposeInMainWorld('mHub', {
   saveMacro: (macro) => ipcRenderer.invoke('macros:save', macro),
   removeMacro: (macroId) => ipcRenderer.invoke('macros:remove', macroId),
   insertMacro: (macroId, values) => ipcRenderer.invoke('macros:insert', macroId, values),
+  about: () => ipcRenderer.invoke('about:get'),
+  profileSize: () => ipcRenderer.invoke('about:profile-size'),
+  openProfileFolder: () => ipcRenderer.invoke('about:open-profile'),
+  openRepository: () => ipcRenderer.invoke('about:open-repository'),
   pickFile: () => ipcRenderer.invoke('files:pick'),
 })

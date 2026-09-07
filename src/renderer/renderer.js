@@ -3,6 +3,7 @@ import { t, availableLanguages, validLanguage, DEFAULT_LANGUAGE } from '../share
 import { parseTags, formatTags } from '../shared/tags.js'
 import { findVariables } from '../shared/variables.js'
 import { PLATFORM_DEFAULT_NOTIFICATIONS } from '../shared/platform-defaults.js'
+import { formatBytes } from '../shared/bytes.js'
 
 // Interface language. The value arrives from the main process at startup, so until the
 // answer comes back we hold the default – otherwise the first frame would show bare keys.
@@ -559,6 +560,7 @@ async function applyLanguage() {
   applyRailState({ pinned: railPinned, expanded: rail.classList.contains('expanded') })
   await refreshRail()
   if (settingsDialog.open) await refreshAccountList()
+  if (settingsDialog.open) paintAbout()
   if (macrosDialog.open) await refreshMacros()
 }
 
@@ -900,6 +902,7 @@ async function moveAccount(accountId, offset) {
 
 document.getElementById('open-settings').addEventListener('click', async () => {
   await refreshAccountList()
+  await refreshAbout()
   showDialog(settingsDialog)
 })
 
@@ -912,6 +915,42 @@ document.getElementById('add-account-from-settings').addEventListener('click', (
   settingsDialog.close()
   openAccountForm()
 })
+
+// The nameplate at the foot of the settings. The facts come from the main process in one
+// answer and the size of the profile in another: the walk over a real profile takes the
+// better part of a second (843 MB in 3366 files, measured 2026-09-07), so the dialog opens
+// on the facts and the number lands when it lands.
+let about = null
+let profileBytes = null
+
+function paintAbout() {
+  if (!about) return
+  document.getElementById('about-version').textContent = about.version
+  document.getElementById('about-built').textContent = about.buildDate
+    ? [about.buildDate, about.commit].filter(Boolean).join(' · ')
+    : tr(about.packaged ? 'aboutBuildUnknown' : 'aboutFromSource')
+  document.getElementById('about-engine').textContent = `Electron ${about.electron} · Chromium ${about.chrome}`
+  const profile = document.getElementById('about-profile')
+  profile.textContent = about.profileDir
+  profile.title = about.profileDir
+  document.getElementById('about-profile-size').textContent =
+    profileBytes === null ? '…' : tr('aboutOnDisk', { size: formatBytes(profileBytes, language) })
+  document.getElementById('about-license').textContent = about.license
+  document.getElementById('open-repository').textContent = about.homepage.replace(/^https?:\/\//, '')
+}
+
+async function refreshAbout() {
+  about = await window.mHub.about()
+  profileBytes = null
+  paintAbout()
+  window.mHub.profileSize().then((bytes) => {
+    profileBytes = bytes
+    paintAbout()
+  }, () => {})
+}
+
+document.getElementById('open-profile').addEventListener('click', () => window.mHub.openProfileFolder())
+document.getElementById('open-repository').addEventListener('click', () => window.mHub.openRepository())
 
 // Removing an account clears its session, which signs it out – hence a confirmation
 // rather than a bare click. The confirmation opens ON TOP of the settings, so closing it

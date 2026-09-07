@@ -1,5 +1,29 @@
 # Release notes
 
+## 0.5.7 – a nameplate in Settings
+
+**Settings now end with a nameplate.** The foot of the dialog carries what a bug report needs
+and nobody could get at without opening a file: the version; the build, as its date and the
+commit it was made from; the Electron and Chromium underneath; the profile directory, how much
+it holds on disk, and a button that opens it; and the licence with the address of the source
+code. Every value is read from the running process or from the manifest the installer packed,
+so none of it can go stale, and the plate can be selected and copied into a message.
+
+**A build knows when it was built.** CI writes the date (UTC) and the commit into the package
+as it builds it, and the packaged application shows them. A copy run from the sources has
+neither and says "running from source", rather than showing the day the files were last
+touched. The test that runs on the package itself now checks that both arrived.
+
+**The engine is on the plate because the error message talks about it.** When WhatsApp Web
+refuses an old Chromium, the failure message has always said to update Electron. The version
+it means is now one look away.
+
+**The size of the profile is measured, not estimated.** It is every byte under the profile –
+sessions, Chromium's caches, the log, the attachments – walked when the dialog opens. On the
+author's own profile that is 843 MB in 3366 files and takes most of a second, so the dialog
+opens on the facts and the number lands a moment later, shown the way Explorer shows sizes so
+the two can be compared.
+
 ## 0.5.6 – a correction about Smart App Control, and where the signature is going
 
 **Turning Smart App Control off is no longer a one-way door, and these notes said it was.** Until

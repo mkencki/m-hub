@@ -1,6 +1,6 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, globalShortcut, screen, shell, powerMonitor, dialog } from 'electron'
 import path from 'node:path'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { cleanUserAgent, ViewManager } from './views.js'
 import { loadLayout, saveLayout, centreOn, setAutoStart, acceptHoverReport, HIDDEN_FLAG } from './shell.js'
@@ -11,6 +11,7 @@ import { createClipboardSession } from './file-clipboard.js'
 import { createLogger } from './log.js'
 import { migrateProfile, LEGACY_PROFILE_DIR } from './profile.js'
 import { resolveDownloadDir, planSave } from './downloads.js'
+import { describeBuild, directorySize } from './about.js'
 import { WINDOW_ICON, TRAY_ICON } from './assets.js'
 import { t, validLanguage } from '../shared/i18n.js'
 
@@ -336,6 +337,28 @@ async function createWindow() {
     await saveLayout(layoutFile, currentLayout(), legacyLayoutFile).catch(() => {})
     return downloadSettings()
   })
+
+  // The nameplate in Settings. The manifest is the package.json electron-builder packed, which
+  // is where CI leaves the build date and the commit (the Build installer step in
+  // .github/workflows/build.yml); it is read from the app path, so the packaged copy and a run
+  // from the sources look in the same place. The size of the profile is a separate question,
+  // because answering it means walking the whole profile – see about.js.
+  const manifest = JSON.parse(readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8'))
+
+  ipcMain.handle('about:get', () => ({
+    ...describeBuild(manifest, process.versions, app.isPackaged),
+    profileDir: dataDir,
+    homepage: manifest.homepage,
+    license: manifest.license,
+  }))
+
+  ipcMain.handle('about:profile-size', () => directorySize(dataDir))
+
+  // Both hand the system something THIS process chose – the profile directory it runs on and
+  // the address in its own manifest. The renderer names neither, for the same reason "Show in
+  // folder" is given an id rather than a path.
+  ipcMain.handle('about:open-profile', () => shell.openPath(dataDir))
+  ipcMain.handle('about:open-repository', () => shell.openExternal(manifest.homepage))
 
   ipcMain.handle('language:get', () => language)
 

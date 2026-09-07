@@ -37,8 +37,17 @@ jobs:
       - name: End-to-end tests
         run: npm run test:e2e
 
+      # The date and the commit go INTO the package, through electron-builder's extraMetadata,
+      # so the packaged copy can say on its nameplate which build it is. The sources can know
+      # neither – a run from them says "running from source" instead. The date is UTC, so the
+      # same build reads the same everywhere, and the commit is the one checked out here, not
+      # whatever the event that started the run happened to name. package.spec.js checks that
+      # both arrived in the package.
       - name: Build installer
-        run: npm run dist:installer
+        run: |
+          $date = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd')
+          $commit = git rev-parse HEAD
+          npm run dist:installer -- "-c.extraMetadata.buildDate=$date" "-c.extraMetadata.commit=$commit"
 
       # The packaged application is the thing people download, and the test that checks it –
       # asar, ESM in the main process, a CommonJS preload, dialogs above the native view – had

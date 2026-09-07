@@ -84,6 +84,7 @@ installed build needs none of this: its installer writes the same shortcut.
 | **Recovery** | a crashed, hung or stale account offers a reload in the status bar – nothing reloads by itself, because that would throw away a half-typed message |
 | **Links** | a link out of a conversation opens in your own browser, not in a window without an address bar carrying your signed-in session |
 | **Downloads** | a file from a conversation says when it has landed and offers the folder it landed in; Settings holds the folder and whether you are asked each time |
+| **About** | a nameplate at the foot of Settings: version, build date and commit, Electron and Chromium, the profile folder with its size on disk and a button that opens it, licence and source |
 
 Macros and attachments live in `%APPDATA%\M-HUB` (`macros.json` and the `att/` directory),
 accounts in `accounts.json` next to them. Deleting a macro or detaching a file cleans the storage,

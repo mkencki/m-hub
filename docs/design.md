@@ -567,6 +567,20 @@ so the mark has one source. A .bmp stores its rows bottom-up and pads each one t
 neither mistake fails a build, both produce a garbled wizard, and `tests/bmp.test.js` reads
 them back out of the bytes. The header bitmap is white because MUI paints that bar white.
 
+**Settings end with a nameplate.** What a bug report needs – the version, the build date and
+commit, the Electron and Chromium underneath, the profile directory and its size, the licence
+and the address of the sources – set like the rating plate on a piece of equipment, at the foot
+of the settings, on the groove rather than the panel so it reads as a plate and not as one more
+setting. Every value is read from the running process or from the manifest electron-builder
+packed: CI writes the date (UTC) and the commit it checked out into the package through
+`extraMetadata`, a run from the sources has neither and says so, and `package.spec.js` checks on
+the package itself that both arrived. The size is every byte under the profile, walked
+asynchronously on an IPC channel of its own after the dialog is already open – 843 MB in 3366
+files on a real profile, 772 ms when walked synchronously, measured 2026-09-07, which is why it
+is neither synchronous nor part of the answer the dialog waits for. The two buttons hand the
+system a folder and an address this process chose; the renderer names neither, for the same
+reason "Show in folder" is given an id rather than a path.
+
 ## 10. Tests
 
 Behaviour is tested, not implementation detail.

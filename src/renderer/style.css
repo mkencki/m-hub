@@ -598,3 +598,83 @@ button:disabled { opacity: .3; cursor: default; }
   color: var(--muted);
 }
 .macro-tag:hover { color: var(--text); border-color: var(--muted); }
+
+/* ---------- the nameplate ----------
+   What a bug report needs, set like the rating plate on a piece of equipment: the model, the
+   number, the date of manufacture. It sits at the foot of the settings on the groove rather
+   than the panel, so it reads as a plate and not as one more setting. The version is the one
+   thing set large – it is the number people are asked for – and nothing on the plate takes the
+   channel colour, which stays with the account. The plate is selectable, because it is going
+   to be copied into a message. */
+.nameplate {
+  margin: 0 16px 12px;
+  padding: 10px 12px 11px;
+  background: var(--groove);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  user-select: text;
+}
+.nameplate-head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 9px; }
+.nameplate-name {
+  margin: 0;
+  font-family: var(--font-console);
+  font-stretch: 87.5%;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+.nameplate-label {
+  font-family: var(--font-data);
+  font-size: 9.5px;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.nameplate-version {
+  margin-left: auto;
+  font-family: var(--font-data);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: .04em;
+}
+.nameplate-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 5px 14px;
+  align-items: center;
+  margin: 0;
+}
+.nameplate-grid dt {
+  font-family: var(--font-data);
+  font-size: 9.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.nameplate-grid dd {
+  margin: 0;
+  min-width: 0;
+  font-family: var(--font-data);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+/* The path is the one value that can be arbitrarily long; like the download folder above it,
+   it is cut short rather than pushing the button off the plate. */
+.nameplate-profile { display: flex; align-items: center; gap: 8px; }
+.nameplate-profile output { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nameplate-profile span { flex: none; color: var(--muted); }
+.nameplate-profile button { flex: none; padding: 3px 9px; font-size: 13px; }
+/* An address reads as an address: underlined, not boxed. It is still a button, because the
+   page has nothing to navigate to – the main process opens the browser. */
+.nameplate .link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--text);
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.nameplate .link:hover { background: none; color: #fff; text-decoration-style: solid; }
+.nameplate .link:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }

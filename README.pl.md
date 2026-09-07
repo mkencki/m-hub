@@ -77,6 +77,7 @@ zainstalowana tego nie potrzebuje – jej instalator zakłada taki sam skrót.
 | **Odzyskiwanie** | konto, które padło, zawisło albo się zdezaktualizowało, proponuje przeładowanie w pasku statusu – nic nie przeładowuje się samo, bo to skasowałoby na wpół napisaną wiadomość |
 | **Linki** | link z rozmowy otwiera się w twojej przeglądarce, a nie w oknie bez paska adresu, niosącym twoją zalogowaną sesję |
 | **Pobieranie** | plik z rozmowy melduje, że się zapisał, i podaje odnośnik do folderu; w Ustawieniach jest folder pobierania i przełącznik „pytaj za każdym razem” |
+| **O aplikacji** | tabliczka na dole Ustawień: wersja, data i commit budowy, Electron i Chromium, folder profilu z rozmiarem na dysku i przyciskiem, który go otwiera, licencja i kod źródłowy |
 
 Makra i załączniki żyją w `%APPDATA%\M-HUB` (`macros.json` oraz katalog `att/`),
 konta w `accounts.json` obok nich. Usunięcie makra albo zdjęcie załącznika sprząta

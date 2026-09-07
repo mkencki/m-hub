@@ -69,6 +69,18 @@ export const pl = {
   moveUp: 'Przesuń {name} w górę',
   moveDown: 'Przesuń {name} w dół',
 
+  // Tabliczka na dole ustawień
+  about: 'O aplikacji',
+  aboutBuilt: 'Zbudowano',
+  aboutFromSource: 'uruchomiona ze źródeł',
+  aboutBuildUnknown: 'data budowy niezapisana',
+  aboutEngine: 'Silnik',
+  aboutProfile: 'Profil',
+  aboutOnDisk: '{size} na dysku',
+  openFolder: 'Otwórz folder',
+  aboutLicense: 'Licencja',
+  openRepository: 'Otwórz kod źródłowy w przeglądarce',
+
   // Usuwanie konta
   removeAccountQuestion: 'Usunąć to konto?',
   accountWillDisappear: '„{name}” zniknie z szyny kanałów.',

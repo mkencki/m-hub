@@ -64,6 +64,18 @@ export const en = {
   moveUp: 'Move {name} up',
   moveDown: 'Move {name} down',
 
+  // The nameplate at the foot of Settings
+  about: 'About',
+  aboutBuilt: 'Built',
+  aboutFromSource: 'running from source',
+  aboutBuildUnknown: 'build date not recorded',
+  aboutEngine: 'Engine',
+  aboutProfile: 'Profile',
+  aboutOnDisk: '{size} on disk',
+  openFolder: 'Open folder',
+  aboutLicense: 'Licence',
+  openRepository: 'Open the source code in your browser',
+
   // Removing an account
   removeAccountQuestion: 'Remove this account?',
   accountWillDisappear: '"{name}" will disappear from the channel rail.',

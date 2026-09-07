@@ -106,6 +106,31 @@
     <output id="download-dir"></output>
     <button type="button" id="pick-download-dir" data-i18n="changeFolder">Change…</button>
   </div>
+  <!-- The nameplate: what a bug report needs and a person cannot otherwise get at, set like
+       the rating plate on a piece of equipment. Every value is read from the running process
+       or the packed manifest, and the two buttons hand the system a folder and an address
+       THIS process chose – the renderer names neither. See the about:* channels in main.js. -->
+  <section id="about" class="nameplate" aria-labelledby="about-title about-label">
+    <div class="nameplate-head">
+      <h3 id="about-title" class="nameplate-name">M-HUB</h3>
+      <span id="about-label" class="nameplate-label" data-i18n="about">About</span>
+      <output id="about-version" class="nameplate-version"></output>
+    </div>
+    <dl class="nameplate-grid">
+      <dt data-i18n="aboutBuilt">Built</dt>
+      <dd id="about-built"></dd>
+      <dt data-i18n="aboutEngine">Engine</dt>
+      <dd id="about-engine"></dd>
+      <dt data-i18n="aboutProfile">Profile</dt>
+      <dd class="nameplate-profile">
+        <output id="about-profile"></output>
+        <span id="about-profile-size"></span>
+        <button type="button" id="open-profile" data-i18n="openFolder">Open folder</button>
+      </dd>
+      <dt data-i18n="aboutLicense">Licence</dt>
+      <dd><span id="about-license"></span> · <button type="button" id="open-repository" class="link" data-i18n-title="openRepository"></button></dd>
+    </dl>
+  </section>
   <menu>
     <button type="button" id="add-account-from-settings" data-i18n="addAccount">Add account</button>
     <button id="close-settings" value="close" class="primary" data-i18n="close">Close</button>

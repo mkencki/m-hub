@@ -76,6 +76,16 @@ test('the packaged application starts with a working renderer and IPC bridge', a
     )
     .toBe(0)
 
+  await page.locator('#account-dialog button[value="cancel"]').click()
+  await expect(page.locator('#account-dialog')).toBeHidden()
+
+  // The nameplate on the PACKAGE carries what CI put into the manifest – a build date and a
+  // commit – and this is the only place it can be seen to have arrived: the sources cannot
+  // know either, and say so instead.
+  await page.locator('#open-settings').click()
+  await expect(page.locator('#about-built')).toHaveText(/^\d{4}-\d{2}-\d{2} · [0-9a-f]{7}$/)
+  await page.locator('#close-settings').click()
+
   await electronApp.close()
   const cleanup = rm(dataDir, { recursive: true, force: true, maxRetries: 3 }).catch(() => {})
   await Promise.race([cleanup, new Promise((done) => setTimeout(done, 3000))])

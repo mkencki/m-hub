@@ -1,5 +1,32 @@
 # Release notes
 
+## 0.5.8 – a quit during startup is a quit
+
+**Quitting the application while it was still starting left it running on a window that was
+already gone.** The close handler that saves the layout is attached at the end of startup, so a
+quit that arrived before then closed the window the ordinary way, and startup carried on
+regardless: the account views were added to a window that no longer existed, and working out
+their size threw "Object has been destroyed" into an unhandled rejection. Measured on CI on
+2026-09-07, where the test that starts the application and closes it at once reached the main
+process while the accounts file was still being read; on the author's machine the read wins
+that race every time. An exception in the main process is also how an exit has been blocked
+before, so this is not left to luck: startup now stops at the first sign that the window is
+gone, the renderer is not loaded into it, no tray icon is built for it, and a regression test
+asks for the quit the moment the window is created, which is the earliest anybody can.
+
+**The same quit a moment later, while the renderer is loading, was a second exception.**
+Electron reports the interrupted load as a failure, and it does so before the window reports
+itself gone, so asking the window was not enough: the flag raised the moment a quit is asked
+for is what tells the two apart. A full run of the test suite carried four of these per run
+before this release, from tests that close the application soon after it has a window, and
+none after it. A second regression test asks for the quit as the renderer starts loading.
+
+**How it was found.** The tag build of 0.5.7 passed all of its tests and then failed on the
+teardown of the test worker, which waits without limit for any process still alive and does
+not say which. The end-to-end step now logs every process it starts, with the test it belongs
+to, its errors and its exit, and the first such log carried the rejection above. Whether that
+same race was what kept a process alive on the failed run is not proven; that it could is.
+
 ## 0.5.7 – a nameplate in Settings
 
 **Settings now end with a nameplate.** The foot of the dialog carries what a bug report needs

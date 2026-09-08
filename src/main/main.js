@@ -220,6 +220,9 @@ async function createWindow() {
   const railExpanded = () => railPinned || railHovered
 
   const fitViews = () => {
+    // resize arrives from the window and account changes from the bridge; neither knows
+    // whether the window is still there.
+    if (window.isDestroyed()) return
     const { width, height } = window.getContentBounds()
     const rail = railExpanded() ? RAIL_EXPANDED : RAIL_COLLAPSED
     manager.setGeometry({
@@ -570,6 +573,17 @@ async function createWindow() {
   // "No handler registered for 'accounts:list'" and an empty rail.
   const { accounts } = await loadAccounts(path.join(dataDir, 'accounts.json'))
 
+  // A quit can arrive while the accounts file is being read – Playwright's close() did, on CI,
+  // 2026-09-07 – and Electron then closes the window on its own, because the close handler
+  // further down has not been attached yet. Nothing after this line has any business running
+  // for a window that is gone: the views would be added to it, the shortcut registered for it,
+  // and fitViews would throw "Object has been destroyed" into an unhandled rejection, which is
+  // the kind of exception that has blocked an exit before. A start that was quit before it
+  // finished also leaves no started line, which is what it ought to look like. The flag
+  // before-quit sets is asked first: it is raised before Electron starts closing windows,
+  // so it says so earlier than the window can.
+  if (quitting || window.isDestroyed()) return
+
   // Here rather than at the top of this function, because here the number is known. The line
   // used to be written the moment the logger existed and carried a hardcoded zero, so it said
   // nothing at all – and the one question it should answer is the first a helper asks when
@@ -586,7 +600,17 @@ async function createWindow() {
   clipboardSession.warmUp()
   registerMacroChannels({ dataDir, manager, clipboardSession })
 
-  await window.loadFile(path.join(HERE, '..', 'renderer', 'index.html'))
+  // loadFile rejects with ERR_FAILED when the window goes away underneath it – that is the
+  // same quit arriving a moment later, not a failure to load. Electron rejects it BEFORE the
+  // window reports itself destroyed (measured 2026-09-08), so the flag is what says it was
+  // the quit; the window is asked as well, for a close that did not come through app.quit().
+  try {
+    await window.loadFile(path.join(HERE, '..', 'renderer', 'index.html'))
+  } catch (error) {
+    if (quitting || window.isDestroyed()) return
+    throw error
+  }
+  if (quitting || window.isDestroyed()) return
   refreshBadge()
 
   // A laptop coming back from sleep leaves the services believing the computer is gone.
@@ -690,7 +714,9 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
     await createWindow()
-    buildTray()
+    // A start that was quit halfway through has no window to put in the tray, and a tray icon
+    // with no window behind it would keep the process alive for nothing.
+    if (window && !window.isDestroyed()) buildTray()
   })
 }
 

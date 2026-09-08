@@ -581,6 +581,26 @@ is neither synchronous nor part of the answer the dialog waits for. The two butt
 system a folder and an address this process chose; the renderer names neither, for the same
 reason "Show in folder" is given an id rather than a path.
 
+**A quit that arrives during startup.** `createWindow` awaits the accounts file and then the
+renderer, and the close handler that saves the layout is attached only after both. A quit
+before that – Playwright's `close()` in a test that starts the application and closes it at
+once, on a CI runner slow enough for the read to lose – closed the window the ordinary way and
+startup carried on: views added to a window that was gone, `fitViews` throwing "Object has
+been destroyed" as an unhandled rejection (measured on CI on 2026-09-07, run 34166392686,
+`startup.spec.js`). Startup now stops after each await if the window is gone, `loadFile`
+rejecting for that reason is not a load failure, and no tray is built. The regression test
+registers `browser-window-created` to quit right after launch, which `launch()` makes
+deterministic: it resolves after `app.whenReady()` and before the window exists, three times
+out of three. A second one quits on the first `did-start-loading` of the main window, because
+Electron rejects an interrupted `loadFile` with ERR_FAILED before the window reports itself
+destroyed – so the guards ask the `quitting` flag first, which `before-quit` raises before any
+window is closed, and the window second, for a close that did not come through `app.quit()`.
+Four such rejections per full local run came from `isolation.spec.js` and
+`attachments.spec.js`, which close the application soon after it has a window. The log that found it exists because Playwright's worker teardown waits without
+limit for any launched process still alive and names none of them – the end-to-end step runs
+with `DEBUG=pw:browser` since the tag build of 0.5.7 failed exactly there, with every test
+green.
+
 ## 10. Tests
 
 Behaviour is tested, not implementation detail.

@@ -3,7 +3,7 @@ import path from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { cleanUserAgent, ViewManager } from './views.js'
-import { loadLayout, saveLayout, centreOn, setAutoStart, acceptHoverReport, HIDDEN_FLAG } from './shell.js'
+import { loadLayout, saveLayout, centreOn, setAutoStart, isAutoStartOn, acceptHoverReport, HIDDEN_FLAG } from './shell.js'
 import { loadAccounts, PLATFORMS, notificationsAllowed } from './accounts.js'
 import { classify } from './navigation.js'
 import { registerAccountChannels, registerMacroChannels } from './bridge.js'
@@ -674,7 +674,7 @@ function buildTray() {
       {
         label: tr('trayAutoStart'),
         type: 'checkbox',
-        checked: app.getLoginItemSettings().openAtLogin,
+        checked: isAutoStartOn(app),
         click: (item) => setAutoStart(item.checked, app),
       },
       {

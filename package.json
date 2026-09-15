@@ -1,7 +1,7 @@
 {
   "name": "m-hub",
   "productName": "M-HUB",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "description": "Messenger and two WhatsApp accounts in one window, each in an isolated session, with text macros and attachments",
   "author": "Marek Kencki",
   "license": "MIT",

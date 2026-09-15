@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { loadLayout, saveLayout, centreOn, setAutoStart, acceptHoverReport, DEFAULT_LAYOUT } from '../src/main/shell.js'
+import { loadLayout, saveLayout, centreOn, setAutoStart, isAutoStartOn, acceptHoverReport, DEFAULT_LAYOUT } from '../src/main/shell.js'
 
 let file, dir
 
@@ -153,6 +153,62 @@ describe('autostart', () => {
     setAutoStart(false, fakeApp)
 
     expect(calls[0].openAtLogin).toBe(false)
+  })
+
+  // The Windows side of Electron as measured on 43.4.1: openAtLogin is true only for an entry
+  // that matches the arguments asked about, and executableWillLaunchAtLogin ignores the
+  // arguments but not an entry marked disabled. Writing an entry clears that mark. Written
+  // against this rather than against a list of calls, so the tick is tested for agreeing with
+  // what setAutoStart writes, whatever either of them passes.
+  function windowsLoginItems() {
+    let entry = null
+    let disabled = false
+    return {
+      setLoginItemSettings: ({ openAtLogin, args = [] }) => {
+        entry = openAtLogin ? { args } : null
+        disabled = false
+      },
+      getLoginItemSettings: ({ args = [] } = {}) => ({
+        openAtLogin: entry !== null && JSON.stringify(entry.args) === JSON.stringify(args),
+        executableWillLaunchAtLogin: entry !== null && !disabled,
+      }),
+      disableInTaskManager: () => {
+        if (entry) disabled = true
+      },
+    }
+  }
+
+  // Read without --hidden, the entry setAutoStart wrote did not count, so the tick in the tray
+  // came back empty after every restart and a click on it switched autostart on again.
+  test('the tick agrees with what switching it on wrote', () => {
+    const app = windowsLoginItems()
+
+    setAutoStart(true, app)
+
+    expect(isAutoStartOn(app)).toBe(true)
+  })
+
+  test('the tick agrees with what switching it off wrote', () => {
+    const app = windowsLoginItems()
+    setAutoStart(true, app)
+
+    setAutoStart(false, app)
+
+    expect(isAutoStartOn(app)).toBe(false)
+  })
+
+  // Task Manager leaves the entry in place and only marks it disabled, so the entry alone would
+  // keep the tick on for a start that Windows is going to skip.
+  test('an entry switched off in Task Manager leaves the tick empty until it is switched on again', () => {
+    const app = windowsLoginItems()
+    setAutoStart(true, app)
+    app.disableInTaskManager()
+
+    expect(isAutoStartOn(app)).toBe(false)
+
+    setAutoStart(true, app)
+
+    expect(isAutoStartOn(app)).toBe(true)
   })
 })
 

@@ -111,6 +111,23 @@ export function setAutoStart(enabled, app) {
   app.setLoginItemSettings({ openAtLogin: Boolean(enabled), args: [HIDDEN_FLAG] })
 }
 
+// Whether the tick beside Start with Windows belongs on. Electron compares the Run entry with
+// the executable AND the arguments it is asked about, so the question has to carry the same
+// --hidden that setAutoStart writes. Asked without it, it says no to its own entry – measured
+// 2026-09-15 on Electron 43.4.1: straight after the write, openAtLogin was false without the
+// arguments and true with them. In the tray that meant a tick that came back empty after every
+// restart, and a click on it that switched autostart on again instead of off.
+//
+// openAtLogin still says yes to an entry switched off in Task Manager or Windows Settings. That
+// switch is a disabled mark under StartupApproved, with the Run entry left where it is – Electron
+// documents the mark as what those two screens show – and only executableWillLaunchAtLogin reads
+// it. Measured the same day with the mark set by hand: the tick came up empty, and one click on
+// it switched autostart on for real, because the write clears the mark.
+export function isAutoStartOn(app) {
+  const settings = app.getLoginItemSettings({ args: [HIDDEN_FLAG] })
+  return Boolean(settings.openAtLogin && settings.executableWillLaunchAtLogin)
+}
+
 // A mouseleave on the channel rail does not always mean the pointer left it. Chromium fires
 // one when the window stops being the foreground window, and it carries the position the
 // pointer had all along – measured 2026-08-25 at clientX 24 inside a rail box of 0..162,

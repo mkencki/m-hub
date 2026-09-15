@@ -601,6 +601,23 @@ limit for any launched process still alive and names none of them – the end-to
 with `DEBUG=pw:browser` since the tag build of 0.5.7 failed exactly there, with every test
 green.
 
+**The Start with Windows tick.** `setAutoStart` writes the login item with `--hidden`, and the
+tray read it back with `app.getLoginItemSettings().openAtLogin`, asking without arguments.
+Electron compares the Run entry with the executable and with the arguments it is asked about,
+so the application said no to its own entry – measured on 2026-09-15 on Electron 43.4.1,
+straight after the write: `openAtLogin` false without the arguments, true with them. After
+every restart the tick came up empty over an entry that was there, and a click on it switched
+autostart on again. `isAutoStartOn` asks with the same `--hidden`, and asks
+`executableWillLaunchAtLogin` as well, because `openAtLogin` still says yes to an entry switched
+off in Task Manager or Windows Settings: that switch is a disabled mark under `StartupApproved`
+which leaves the Run entry where it is, and only `executableWillLaunchAtLogin` reads it. Both
+readings were measured on the application itself: a module loaded with `-r` ahead of it – the
+way Playwright loads its own loader – kept every menu it built, so the tray's own menu item
+could be clicked from the main process and read again after a restart, with the registry
+checked at each step and cleaned afterwards. The tests hold `isAutoStartOn` to a model of that
+behaviour rather than to a list of calls: with the old reading two of them fail, and without
+the second question the Task Manager one does.
+
 ## 10. Tests
 
 Behaviour is tested, not implementation detail.

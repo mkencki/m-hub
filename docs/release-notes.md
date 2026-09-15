@@ -1,5 +1,28 @@
 # Release notes
 
+## 0.5.9 – the Start with Windows tick survives a restart
+
+**The tick beside Start with Windows in the tray menu came back empty after every restart, with
+autostart still on.** Autostart is written with `--hidden` on the command line, so that a start
+at login goes straight to the tray, and the tray asked for it back without that argument.
+Electron compares the entry with the executable and with the arguments it is asked about, so
+the application did not recognise its own entry: measured on 2026-09-15 on Electron 43.4.1,
+straight after the write, the answer was no without the argument and yes with it. Autostart
+itself kept working – only the tick misreported it, and a click on the empty tick switched
+autostart on again instead of off. The tick now asks with the same argument.
+
+**Autostart switched off in Task Manager or in Windows Settings no longer shows as on.**
+Switching it off there leaves the entry in place and only marks it disabled, and a question
+about the entry alone still answered yes for a start Windows was going to skip. The tick now
+also asks whether the application will actually be launched at login, so it comes up empty in
+that case, and one click on it switches autostart back on for real.
+
+**How it was found.** Reading how autostart is written showed that it was read back
+differently. It was confirmed on the application itself before anything changed – tick it,
+quit, start again, and an empty tick over an entry that was there – and the same sequence was
+run against the fix, with the Task Manager mark set by hand. The new tests hold the tick to a
+model of that measured behaviour; put the old reading back and two of them fail.
+
 ## 0.5.8 – a quit during startup is a quit
 
 **Quitting the application while it was still starting left it running on a window that was

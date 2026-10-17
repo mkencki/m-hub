@@ -28,6 +28,7 @@ export function registerAccountChannels({
   manager,
   onAccountsChanged,
   prepareView = () => {},
+  onAccountShown = () => {},
 }) {
   const accountsFile = path.join(dataDir, 'accounts.json')
 
@@ -100,8 +101,11 @@ export function registerAccountChannels({
     manager.setVisibility(visible)
   })
 
+  // The status bar's Back and Forward belong to the account in front, so they are told where the
+  // new one can go the moment it is shown.
   ipcMain.handle('accounts:switch', async (_event, accountId) => {
     manager.show(accountId)
+    onAccountShown(accountId)
   })
 }
 

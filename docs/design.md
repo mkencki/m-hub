@@ -292,7 +292,7 @@ Beyond these rules the application is an ordinary browser with tabs.
 |---|---|
 | `accounts.json` damaged | a backup copy alongside it, start with an empty list, message shown |
 | no network | the view shows the platform's own state; the app does not intervene – F5 or the channel menu brings the page back once the network does |
-| a page refuses to be left (an unsent draft) | said in the status bar by account; an offer to discard only when the refusal answers a reload just asked for |
+| a page refuses to be left (an unsent draft) | said in the status bar by account; an offer to discard only when the refusal answers a reload or a step just asked for |
 | WhatsApp refuses the client (`User-Agent`) | an explicit message suggesting an update |
 | attachment file missing from the store | the macro is marked incomplete, the text still works |
 | file over the limit | refused, with the size and the limit reported |
@@ -663,6 +663,31 @@ the decision cannot drift apart. Whether sleeping accounts pays rests on what an
 `account-memory.js` adds up the private memory of an account's renderer and of the processes
 its frames run in, from `app.getAppMetrics()`, and `account-memory` records it in megabytes when
 Settings opens and fifteen minutes after the start.
+
+**Stepping through an account (0.6.1).** `commandFor` turns Alt+← and Alt+→ into `back` and
+`forward`, and they reach `runAccountCommand` with the reloads, so the dialog rule and the guard
+come for free; the guard is armed only when a step actually started, or a press with nowhere to go
+would turn the page's next refusal of its own navigation into an offer to discard. The keyboard's
+Back key never arrives in `before-input-event` as a key at all – it comes as the window's
+`app-command` – while the mouse's side buttons are Chromium's own and take exactly one step,
+which a test holds. The status bar learns where an account stands from `nav:state`, sent on
+`did-frame-navigate`, `did-navigate-in-page` and `did-fail-load`: Electron reports a committed
+error page by the last alone, though it is an entry in the history like any other. Three things
+the tests had to learn on CI. `getActiveIndex()` answers with the PENDING entry while a navigation
+is on its way, so a test waits for the committed address before the next key. A page's own
+`pushState` counts for Back only after a real activation – a gesture injected through
+`executeJavaScript` leaves the entry skippable – so the test clicks through CDP. And `loadURL`
+over a page still loading can reject with the error of the load it interrupted.
+
+**Windows a page opens (0.6.1).** In such a window `commandFor` passes only the keys of a small
+browser – back, forward, reload, hard reload and the developer tools – and acts on that window, not
+on the account behind it. Its menu is built once and only its items are switched on and off, since
+a menu replaced while open would be pulled out from under the click. A handled Alt+← does not
+uncover the hidden menu bar: after a handled key down Chromium drops every key up until the next
+key down, the Alt's included, so the window never sees Alt let go – the end-to-end test holds both
+halves, Alt+← leaving the bar hidden and Alt alone showing it. Moving a page into the account view
+hides the window, loads the address in the view, and closes the window only once the load has
+committed; a refused load, or a window whose own page refuses to close, brings it back.
 
 ## 10. Tests
 

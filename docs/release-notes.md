@@ -1,5 +1,32 @@
 # Release notes
 
+## 0.6.1 – back, forward and the start page, for every account
+
+**Back and Forward for the account you are looking at.** Two arrows at the left of the status
+bar step back and forward through that account's own pages – a profile, a post, a photo and back
+again, as in a browser – and grey out when there is nowhere to go. Alt+← and Alt+→ do the same
+whether the keyboard is in the page or in the application around it, and so do the mouse's side
+buttons and the keyboard's Back key. Holding Alt+← down is one step rather than a stream of them,
+and while Settings or another dialog is open the keys do nothing. After a click on an arrow the
+keyboard is back in the page, and the other accounts keep their own place.
+
+**The house goes to the account's start page** – the way out from deep inside Facebook or a long
+thread, without reloading anything else.
+
+**A page that failed to load counts as a page.** After the white page a dropped connection
+leaves, Back is there to return to the last page that worked.
+
+**A page holding an unsent draft can refuse a step, as it can refuse a reload,** and the status
+bar says so and offers to discard the changes and go on.
+
+**Windows a page opens have their own Back, Forward and Reload.** A sign-in, or a post opened
+with a middle click, comes up in a window of its own; Alt+←, Alt+→ and F5 now act on that window
+and leave the account behind it alone. Alt shows a menu with the same three and one more: for a
+page of the service itself, Open in the account view moves the page into the account and closes
+the window. A sign-in is never offered the move, because it answers back to the window that
+opened it. When the account's page refuses to be left – an unsent draft again – the status bar
+says so and the window stays where it was.
+
 ## 0.6.0 – reload any account, from the keyboard or the rail
 
 **F5 reloads the account you are looking at.** So does Ctrl+R, and Ctrl+F5 or Shift+F5 reloads

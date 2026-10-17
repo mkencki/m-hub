@@ -123,8 +123,11 @@ async function loadOverLivePage(contentsId, pathname) {
     .toBe(server.url(pathname))
 }
 
-const activeIndex = (contentsId) =>
-  electronApp.evaluate(({ webContents }, id) => webContents.fromId(id).navigationHistory.getActiveIndex(), contentsId)
+// The address a webContents has committed. A step is waited for by this, not by the place in the
+// history: getActiveIndex() moves the moment a step is asked for, before the page has landed, and a
+// key sent on that answer meets a step still on its way (measured on CI, run 39071387442).
+const committedUrl = (contentsId) =>
+  electronApp.evaluate(({ webContents }, id) => webContents.fromId(id).getURL(), contentsId)
 
 // One item of the menu last given to that window, as plain values, or null.
 const menuItem = (childId, itemId) =>
@@ -152,21 +155,20 @@ async function windowWithHistory() {
   const child = await openWindowFrom(viewIds.two, 'https://www.facebook.com/login')
   await loadOverLivePage(child.contentsId, '/one')
   await load(child.contentsId, '/two')
-  await expect.poll(() => activeIndex(child.contentsId)).toBeGreaterThan(0)
+  await expect.poll(() => committedUrl(child.contentsId)).toBe(server.url('/two'))
   return child
 }
 
 test('Alt+Left steps back in the window, and leaves the account alone', async () => {
   const child = await windowWithHistory()
-  const before = await activeIndex(child.contentsId)
-  const accountBefore = await activeIndex(viewIds.two)
+  const accountBefore = await committedUrl(viewIds.two)
 
   await pressKey(electronApp, child.contentsId, 'Left', ['alt'])
-  await expect.poll(() => activeIndex(child.contentsId)).toBe(before - 1)
+  await expect.poll(() => committedUrl(child.contentsId)).toBe(server.url('/one'))
 
   await pressKey(electronApp, child.contentsId, 'Right', ['alt'])
-  await expect.poll(() => activeIndex(child.contentsId)).toBe(before)
-  expect(await activeIndex(viewIds.two)).toBe(accountBefore)
+  await expect.poll(() => committedUrl(child.contentsId)).toBe(server.url('/two'))
+  expect(await committedUrl(viewIds.two)).toBe(accountBefore)
 })
 
 test('F5 reloads the window, not the account', async () => {
@@ -185,7 +187,6 @@ test('F5 reloads the window, not the account', async () => {
 // or the menu could not be reached at all. Every key goes in as a real one arrives.
 test('Alt+Left leaves the menu bar hidden, and Alt on its own shows it', async () => {
   const child = await windowWithHistory()
-  const before = await activeIndex(child.contentsId)
   const send = (events) =>
     electronApp.evaluate(
       ({ webContents }, { id, events }) => {
@@ -204,7 +205,7 @@ test('Alt+Left leaves the menu bar hidden, and Alt on its own shows it', async (
     { type: 'keyUp', keyCode: 'Left', modifiers: ['alt'] },
     { type: 'keyUp', keyCode: 'Alt', modifiers: [] },
   ])
-  await expect.poll(() => activeIndex(child.contentsId)).toBe(before - 1)
+  await expect.poll(() => committedUrl(child.contentsId)).toBe(server.url('/one'))
   await page.waitForTimeout(1000)
   expect(await menuBarShown()).toBe(false)
 

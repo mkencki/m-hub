@@ -101,8 +101,20 @@ async function startFresh(id, pathname = '/one') {
   await inView(id, 'history.replaceState(null, "", location.href), 1')
 }
 
-const activeIndex = (id) =>
-  electronApp.evaluate(({ webContents }, id) => webContents.fromId(id).navigationHistory.getActiveIndex(), id)
+// The pages of the history walkThree builds, by their place in it.
+const WALK = ['/one', '/two', '/three']
+
+// Where the view stands: its place in the history and the address it has committed. The place alone
+// is not enough – getActiveIndex() moves the moment a step is ASKED for, before the page has landed,
+// and a key sent on that answer meets a step still on its way (measured on CI, run 39071387442: an
+// Alt+Right sent so undid the pending Back instead of taking a step of its own). The committed
+// address moves only once the step has landed.
+const standing = (id) =>
+  electronApp.evaluate(({ webContents }, id) => {
+    const contents = webContents.fromId(id)
+    return { index: contents.navigationHistory.getActiveIndex(), url: contents.getURL() }
+  }, id)
+const at = (index) => ({ index, url: server.url(WALK[index]) })
 
 const enabled = (selector) => page.locator(selector).isEnabled()
 
@@ -137,7 +149,7 @@ const mouseInView = (id, button) =>
 async function walkThree(id) {
   await load(id, '/two')
   await load(id, '/three')
-  await expect.poll(() => activeIndex(id)).toBe(2)
+  await expect.poll(() => standing(id)).toEqual(at(2))
 }
 
 test('the buttons say where the account can go, and follow the account being looked at', async () => {
@@ -161,16 +173,16 @@ test('Back on the status bar takes one step, and Forward takes it again', async 
   await walkThree(viewIds.one)
 
   await page.locator('#nav-back').click()
-  await expect.poll(() => activeIndex(viewIds.one)).toBe(1)
+  await expect.poll(() => standing(viewIds.one)).toEqual(at(1))
   await expect.poll(() => enabled('#nav-forward')).toBe(true)
 
   await page.locator('#nav-back').click()
-  await expect.poll(() => activeIndex(viewIds.one)).toBe(0)
+  await expect.poll(() => standing(viewIds.one)).toEqual(at(0))
   // At the start of the history there is nowhere further back.
   await expect.poll(() => enabled('#nav-back')).toBe(false)
 
   await page.locator('#nav-forward').click()
-  await expect.poll(() => activeIndex(viewIds.one)).toBe(1)
+  await expect.poll(() => standing(viewIds.one)).toEqual(at(1))
 })
 
 // A button takes the keyboard with the click. Given back, typing and the next Alt+Left go to the
@@ -231,10 +243,10 @@ test('Alt+Left and Alt+Right in the account view step back and forward', async (
   await walkThree(viewIds.one)
 
   await pressKey(electronApp, viewIds.one, 'Left', ['alt'])
-  await expect.poll(() => activeIndex(viewIds.one)).toBe(1)
+  await expect.poll(() => standing(viewIds.one)).toEqual(at(1))
 
   await pressKey(electronApp, viewIds.one, 'Right', ['alt'])
-  await expect.poll(() => activeIndex(viewIds.one)).toBe(2)
+  await expect.poll(() => standing(viewIds.one)).toEqual(at(2))
 })
 
 // The keyboard is in the application's own window after a click on the rail or the status bar.
@@ -242,7 +254,7 @@ test('Alt+Left and Alt+Right in the account view step back and forward', async (
 test('Alt+Left in the app window steps back in the account being looked at', async () => {
   await walkThree(viewIds.one)
   await pressKey(electronApp, windowContentsId, 'Left', ['alt'])
-  await expect.poll(() => activeIndex(viewIds.one)).toBe(1)
+  await expect.poll(() => standing(viewIds.one)).toEqual(at(1))
 })
 
 // Windows reports the keyboard's Back key as WM_APPCOMMAND, which the window hands on as
@@ -258,10 +270,10 @@ test('the Browser Back and Browser Forward keys step once each', async () => {
     })
 
   await appCommand('browser-backward')
-  await expect.poll(() => activeIndex(viewIds.one)).toBe(1)
+  await expect.poll(() => standing(viewIds.one)).toEqual(at(1))
 
   await appCommand('browser-forward')
-  await expect.poll(() => activeIndex(viewIds.one)).toBe(2)
+  await expect.poll(() => standing(viewIds.one)).toEqual(at(2))
 })
 
 // The mouse's side buttons have stepped back from the start, done by Chromium itself. The
@@ -272,10 +284,10 @@ test('the mouse back button takes exactly one step', async () => {
 
   await mouseInView(viewIds.one, 'back')
 
-  await expect.poll(() => activeIndex(viewIds.one)).toBe(1)
+  await expect.poll(() => standing(viewIds.one)).toEqual(at(1))
   // Nothing to wait for when nothing more happens; long enough for a second step to have landed.
   await page.waitForTimeout(1500)
-  expect(await activeIndex(viewIds.one)).toBe(1)
+  expect(await standing(viewIds.one)).toEqual(at(1))
 })
 
 // A dialog hides the views, and a key pressed then is meant for the dialog. A step behind it would
@@ -288,13 +300,13 @@ test('Alt+Left while a dialog is open leaves the account where it is', async () 
 
   await pressKey(electronApp, windowContentsId, 'Left', ['alt'])
   await page.waitForTimeout(1500)
-  expect(await activeIndex(viewIds.one)).toBe(2)
+  expect(await standing(viewIds.one)).toEqual(at(2))
 
   // The same key once the dialog is gone proves it was delivered at all.
   await page.locator('#close-settings').click()
   await expect.poll(() => viewShown(viewIds.one)).toBe(true)
   await pressKey(electronApp, windowContentsId, 'Left', ['alt'])
-  await expect.poll(() => activeIndex(viewIds.one)).toBe(1)
+  await expect.poll(() => standing(viewIds.one)).toEqual(at(1))
 })
 
 // Start goes to the account's own address. An account address has to be https, so it cannot point

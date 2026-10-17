@@ -134,7 +134,8 @@ windows.
 ### 4.2 `views` – the view manager
 
 Creates a `WebContentsView` per account, attaches its session, sets the `User-Agent`,
-governs geometry as the window resizes, and switches the active view. Knows nothing about
+governs geometry as the window resizes, switches the active view, and reloads an account in
+one of three ways – ordinary, past the cache, or by restarting its renderer. Knows nothing about
 where the account list came from.
 
 ### 4.3 `macros` – the macro store
@@ -289,7 +290,8 @@ Beyond these rules the application is an ordinary browser with tabs.
 | Situation | Behaviour |
 |---|---|
 | `accounts.json` damaged | a backup copy alongside it, start with an empty list, message shown |
-| no network | the view shows the platform's own state; the app does not intervene |
+| no network | the view shows the platform's own state; the app does not intervene – F5 or the channel menu brings the page back once the network does |
+| a page refuses to be left (an unsent draft) | said in the status bar by account; an offer to discard only when the refusal answers a reload just asked for |
 | WhatsApp refuses the client (`User-Agent`) | an explicit message suggesting an update |
 | attachment file missing from the store | the macro is marked incomplete, the text still works |
 | file over the limit | refused, with the size and the limit reported |
@@ -617,6 +619,41 @@ could be clicked from the main process and read again after a restart, with the 
 checked at each step and cleaned afterwards. The tests hold `isAutoStartOn` to a model of that
 behaviour rather than to a list of calls: with the old reading two of them fail, and without
 the second question the Task Manager one does.
+
+**Reloading an account (0.6.0).** Keys are read in `before-input-event` on every webContents –
+the window's and each view's – and turned into commands by `commandFor` in `key-commands.js`, so
+F5 means the same wherever the keyboard is. Every way of acting on an account – a key, the
+status bar, the channel menu – goes through one `runAccountCommand`, which refuses keys while a
+dialog has the views stepped aside. A page with a `beforeunload` handler refuses the reload,
+and in a `WebContentsView` Electron turns the refusal into silence; `will-prevent-unload` says
+it happened, and `UnloadGuard` tells a refusal of a reload asked for in the last five seconds
+from one of the page's own navigations, so the offer to discard appears only for the former.
+A restart is `forcefullyCrashRenderer` and a reload, and the crash it causes is marked expected
+for five seconds, because `render-process-gone` arrives a task later and would otherwise
+announce a crash nobody had. The end-to-end tests send keys with `sendInputEvent`, the path a
+real key takes: Playwright's keyboard goes round `before-input-event`, and a test using it
+would pass whether the keys worked or not.
+
+**The channel menu (0.6.0).** A native menu, because the account views sit above the page and
+would cover anything drawn in it. While it is open, a leave reported by the rail is not acted
+on – the pointer moving onto the menu reads as leaving – and once it closes the renderer is
+asked where the pointer is, as after the window comes back to the front. A view takes focus
+while it loads, and the focus listener routes a focus to the rail as a clicked notification;
+the flag that kept a loading view out of that used to be set once, by the first load, so a
+background reload could pull the rail over to itself. It is now the `settling` set, which an
+account joins for every reload asked for here and leaves when the load stops – or at once, when
+the page refuses to be left and no load follows. Each account's own windows are counted, so a
+restart can say beforehand that they may go with it.
+
+**Two measurements (0.6.0).** Two coming decisions need numbers nobody had. Whether popups
+should open inside the account rests on how many are sign-ins and how many are articles, and
+`disposition` cannot tell those apart; `hostClass` in `navigation.js` names the kind of host –
+`service`, `auth`, `shim`, `external`, `block` – and `window-open` records that and the
+disposition, never the address. `classify` decides from the same class, so the description and
+the decision cannot drift apart. Whether sleeping accounts pays rests on what an awake one costs;
+`account-memory.js` adds up the private memory of an account's renderer and of the processes
+its frames run in, from `app.getAppMetrics()`, and `account-memory` records it in megabytes when
+Settings opens and fifteen minutes after the start.
 
 ## 10. Tests
 

@@ -12,6 +12,7 @@ import { UnloadGuard } from './unload-guard.js'
 import { channelMenuTemplate } from './channel-menu.js'
 import { childWindowMenuTemplate, runInWindow } from './child-windows.js'
 import { historyState } from './history.js'
+import { loadAndLand } from './landing.js'
 import { registerAccountChannels, registerMacroChannels } from './bridge.js'
 import { createClipboardSession } from './file-clipboard.js'
 import { createLogger } from './log.js'
@@ -568,6 +569,8 @@ async function createWindow() {
   // load fails, the window comes back, so the page is never lost to a move that did not happen.
   // So does a window whose own page refuses to close – a comment typed in it – because a close is
   // refused as silently as a load, and a hidden window with a draft would be out of reach for good.
+  // Whether the page got there is read from what the view reports, not from loadURL's promise,
+  // which the page being left can fail with an abort of its own (see landing.js).
   const openInAccountView = (accountId, child, address) => {
     const account = manager.accounts.get(accountId)
     const view = manager.liveView(accountId)
@@ -577,11 +580,12 @@ async function createWindow() {
       if (!child.isDestroyed()) child.show()
     }
     child.hide()
-    view.webContents.loadURL(address).then(() => {
+    loadAndLand(view.webContents, address).then((landed) => {
+      if (!landed) return bringBack()
       if (child.isDestroyed()) return
       child.webContents.once('will-prevent-unload', bringBack)
       child.close()
-    }, bringBack)
+    })
     return true
   }
 

@@ -8,6 +8,7 @@ import {
   captureMenus,
   clickMenuItem,
   lastMenu,
+  loadInto,
   pressKey,
   servePages,
   webContentsIdFor,
@@ -133,16 +134,43 @@ test('servePages serves a page an account view can load', async () => {
   const pages = await servePages({ '/one': '<!doctype html><title>page one</title>' })
   try {
     const id = await webContentsIdFor(electronApp, 'acc-one')
-    const title = await electronApp.evaluate(
-      async ({ webContents }, { id, url }) => {
-        const view = webContents.fromId(id)
-        await view.loadURL(url)
-        return view.getTitle()
-      },
-      { id, url: pages.url('/one') },
-    )
-    expect(title).toBe('page one')
+    await loadInto(electronApp, id, pages.url('/one'))
+    expect(await electronApp.evaluate(({ webContents }, id) => webContents.fromId(id).getTitle(), id)).toBe('page one')
   } finally {
     await pages.close()
   }
+})
+
+// loadURL's promise can fail on an abort reported by the page being left, though the page asked for
+// arrives (see loadInto). Here the promise always fails, and the load goes ahead underneath it.
+test('loadInto waits for the page itself, whatever the promise of loadURL says', async () => {
+  const pages = await servePages({ '/one': '<!doctype html><title>page one</title>' })
+  try {
+    const id = await webContentsIdFor(electronApp, 'acc-one')
+    await electronApp.evaluate(({ webContents }, id) => {
+      const contents = webContents.fromId(id)
+      const load = contents.loadURL.bind(contents)
+      contents.loadURL = (address) => {
+        load(address).catch(() => {})
+        return Promise.reject(new Error("ERR_ABORTED (-3) loading 'https://www.facebook.com/'"))
+      }
+    }, id)
+
+    await loadInto(electronApp, id, pages.url('/one'))
+
+    expect(await electronApp.evaluate(({ webContents }, id) => webContents.fromId(id).getTitle(), id)).toBe('page one')
+  } finally {
+    await pages.close()
+  }
+})
+
+// A page that cannot be had is said at once and by its address, rather than left for a later step
+// of the test to trip over. A port nobody listens on stands in for it.
+test('loadInto fails when an error page stands in for the address', async () => {
+  const pages = await servePages({})
+  const address = pages.url('/one')
+  await pages.close()
+  const id = await webContentsIdFor(electronApp, 'acc-one')
+
+  await expect(loadInto(electronApp, id, address)).rejects.toThrow(address)
 })

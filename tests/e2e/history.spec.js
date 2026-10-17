@@ -3,7 +3,7 @@ import { createServer } from 'node:net'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { appWindowId, blankTheViews, clearStatusBar, pressKey, servePages, webContentsIdFor } from './helpers.js'
+import { appWindowId, blankTheViews, clearStatusBar, loadInto, pressKey, servePages, webContentsIdFor } from './helpers.js'
 
 // Back, Forward and Start for the account being looked at: the buttons on the status bar, Alt and
 // the arrows, the keyboard's own Back key, and the mouse's side buttons – each one step, never two.
@@ -86,11 +86,9 @@ const inView = (id, script) =>
     script,
   })
 
-const load = (id, pathname) =>
-  electronApp.evaluate(({ webContents }, { id, address }) => webContents.fromId(id).loadURL(address), {
-    id,
-    address: server.url(pathname),
-  })
+// The first load after blankTheViews still goes over the tail of a live page, whose report of its
+// own load cut short can fail the promise of a later load – hence loadInto, for every load here.
+const load = (id, pathname) => loadInto(electronApp, id, server.url(pathname))
 
 // A view on one page with nothing behind it. Clearing the history says nothing to anybody, so the
 // page then replaces its own entry – a step within the page, which the application hears like any

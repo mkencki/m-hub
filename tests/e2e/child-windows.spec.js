@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { appWindowId, blankTheViews, clearStatusBar, pressKey, servePages, webContentsIdFor } from './helpers.js'
+import { appWindowId, blankTheViews, clearStatusBar, loadInto, pressKey, servePages, webContentsIdFor } from './helpers.js'
 
 // A window a page opened for itself – a sign-in, or a post opened with a middle click – stays a
 // window, and gets what a small browser needs: Alt and the arrows, F5, and a menu that can move a
@@ -106,22 +106,10 @@ async function openWindowFrom(viewId, address) {
   return child
 }
 
-const load = (contentsId, pathname) =>
-  electronApp.evaluate(({ webContents }, { id, address }) => webContents.fromId(id).loadURL(address), {
-    id: contentsId,
-    address: server.url(pathname),
-  })
-
-// The first local page over the live one the window was opened for. Committed is not finished: the
-// live page may still be fetching what it asked for, and a load started over it stops that – which
-// Electron then reports as the NEW load failing, "(-3) loading 'https://www.facebook.com/login'"
-// (measured on CI, run 39069581881). The answer that counts is where the window ends up.
-async function loadOverLivePage(contentsId, pathname) {
-  await load(contentsId, pathname).catch(() => {})
-  await expect
-    .poll(() => electronApp.evaluate(({ webContents }, id) => webContents.fromId(id).getURL(), contentsId))
-    .toBe(server.url(pathname))
-}
+// A local page into the window, over the live one it was opened for. Committed is not finished: the
+// live page may still be fetching what it asked for, and its report of that cut short can fail the
+// promise of this load or of the next one (runs 39069581881 and 39074653622) – hence loadInto.
+const load = (contentsId, pathname) => loadInto(electronApp, contentsId, server.url(pathname))
 
 // The address a webContents has committed. A step is waited for by this, not by the place in the
 // history: getActiveIndex() moves the moment a step is asked for, before the page has landed, and a
@@ -153,9 +141,8 @@ const windowCount = () => electronApp.evaluate(({ BrowserWindow }) => BrowserWin
 // A window on a local history of two pages, standing on the second.
 async function windowWithHistory() {
   const child = await openWindowFrom(viewIds.two, 'https://www.facebook.com/login')
-  await loadOverLivePage(child.contentsId, '/one')
+  await load(child.contentsId, '/one')
   await load(child.contentsId, '/two')
-  await expect.poll(() => committedUrl(child.contentsId)).toBe(server.url('/two'))
   return child
 }
 
@@ -221,7 +208,7 @@ test('the menu offers the account view for a page of the service, and only for o
   await expect.poll(() => menuItem(child.windowId, 'open-in-view')).toMatchObject({ enabled: true })
 
   // A page somewhere else is the system browser's business, not the account's.
-  await loadOverLivePage(child.contentsId, '/one')
+  await load(child.contentsId, '/one')
   await expect.poll(() => menuItem(child.windowId, 'open-in-view')).toMatchObject({ enabled: false })
 })
 

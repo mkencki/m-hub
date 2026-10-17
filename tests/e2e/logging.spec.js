@@ -77,7 +77,8 @@ test('a crash is recorded by account id, not by the name of a person', async () 
 // for. Opening Settings writes it down – asked here the way the nameplate asks – in whole
 // megabytes, against the account id.
 test('opening Settings writes down what each awake account costs in memory', async () => {
-  const memoryLine = /account-memory account=acc-work platform=whatsapp count=\d+ reason=awake/
+  // The fields come out in the order of LOGGED_FIELDS in log.js, whatever order they are given in.
+  const memoryLine = /account-memory account=acc-work platform=whatsapp reason=awake count=\d+/
 
   // The view's renderer starts with the view, but nothing promises it before the window is
   // ready, so the question is asked until there is a process to answer it.

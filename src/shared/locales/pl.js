@@ -53,6 +53,8 @@ export const pl = {
   accountUnresponsive: 'Konto {account} nie odpowiada.',
   wokeUp: 'Komputer się obudził. Konta mogą wymagać przeładowania.',
   reloadAccount: 'Przeładuj',
+  unsavedChanges: 'Konto {account} ma niezapisane zmiany, więc strona została bez zmian.',
+  proceedAnyway: 'Porzuć zmiany',
   trayOpenLogs: 'Otwórz katalog dziennika',
   tags: 'Tagi',
   tagsHint: 'oferta, strefa klienta – po przecinku',

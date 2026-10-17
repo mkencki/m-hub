@@ -6,6 +6,8 @@ import { cleanUserAgent, ViewManager } from './views.js'
 import { loadLayout, saveLayout, centreOn, setAutoStart, isAutoStartOn, acceptHoverReport, HIDDEN_FLAG } from './shell.js'
 import { loadAccounts, PLATFORMS, notificationsAllowed } from './accounts.js'
 import { classify } from './navigation.js'
+import { commandFor } from './key-commands.js'
+import { UnloadGuard } from './unload-guard.js'
 import { registerAccountChannels, registerMacroChannels } from './bridge.js'
 import { createClipboardSession } from './file-clipboard.js'
 import { createLogger } from './log.js'
@@ -134,47 +136,45 @@ async function createWindow() {
   // is most of the working time – the keyboard never reaches the main window and the
   // renderer's shortcuts are dead. The interceptor is therefore attached to EVERY
   // webContents, not just the window. With no menu there is also no "Toggle Developer
-  // Tools" item, so F12 is the only way into the messenger page's console.
+  // Tools" item, so F12 is the only way into the messenger page's console. Which key means
+  // what is decided in key-commands.js, where it can be tested; this only carries it out.
   const attachShortcuts = (webContents) => {
-    webContents.on('before-input-event', (_event, input) => {
-      if (input.type !== 'keyDown') return
+    webContents.on('before-input-event', (event, input) => {
+      const command = commandFor(input, { inMainWindow: webContents === window.webContents })
+      if (!command) return
 
-      if (input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i')) {
+      if (command === 'devtools') {
         const target = manager?.active()?.webContents ?? window.webContents
         target.toggleDevTools()
         return
       }
 
-      // The same key inside the app's own window would tear down the interface, the rail
-      // and the status bar along with it, so it never means what it usually means: it
-      // always reloads the account being looked at.
-      if (input.control && !input.shift && !input.alt && input.key.toLowerCase() === 'r') {
-        _event.preventDefault()
-        if (manager.activeId) manager.reload(manager.activeId)
-        return
-      }
-
-      // Reaching an account without the mouse. The rail's channels are real buttons, but
-      // in normal use the keyboard is inside an account page, where Tab never gets to
-      // them. The renderer is asked to switch rather than the manager being told directly:
-      // it already owns switching, and going round it would leave the rail highlighting
-      // the account the operator just left. Services grab Ctrl+digit for themselves –
-      // Discord does – so the key is taken out of the page's reach.
-      if (input.control && !input.shift && !input.alt && /^[1-9]$/.test(input.key)) {
-        _event.preventDefault()
-        window.webContents.send('accounts:select', Number(input.key) - 1)
-        return
-      }
-
-      // Ctrl+; pressed in the main window is handled by the renderer's own listener on
-      // window. Here we intercept only the key that landed in an account view –
-      // otherwise the same shortcut would fire twice.
-      if (input.control && input.key === ';' && webContents !== window.webContents) {
-        // The panel is drawn by the main window's renderer – and focus has to return
-        // there too, or the operator opens the panel and cannot type in it.
+      // Only ever the key that landed in an account view – in the main window the renderer's
+      // own listener has it. The panel is drawn by the main window's renderer, and focus has
+      // to return there too, or the operator opens the panel and cannot type in it.
+      if (command === 'macros') {
         window.webContents.focus()
         window.webContents.send('macros:open')
+        return
       }
+
+      // Everything else is taken out of the page's reach. Services grab Ctrl+digit for
+      // themselves – Discord does – and a reload key reaching the app's own window would tear
+      // down the interface, the rail and the status bar along with it, so it never means what
+      // it usually means there: it always reloads the account being looked at.
+      event.preventDefault()
+
+      // Reaching an account without the mouse. The rail's channels are real buttons, but in
+      // normal use the keyboard is inside an account page, where Tab never gets to them. The
+      // renderer is asked to switch rather than the manager being told directly: it already
+      // owns switching, and going round it would leave the rail highlighting the account the
+      // operator just left.
+      if (command.select !== undefined) {
+        window.webContents.send('accounts:select', command.select)
+        return
+      }
+
+      runAccountCommand(command, manager.activeId, { fromKeyboard: true })
     })
   }
 
@@ -207,6 +207,24 @@ async function createWindow() {
       offer: { action: 'reload', accountId: account.id },
     })
   })
+
+  // A page with an unsent draft can refuse to be left, and Electron turns the refusal into
+  // silence – see unload-guard.js. The guard is told what is about to happen, so a refusal can
+  // be traced back to it and the operator offered to go ahead with exactly that.
+  const guard = new UnloadGuard()
+
+  // Every request to act on an account comes through here – a key, the status bar – so the
+  // rules below cannot differ between the ways in.
+  const RELOAD_MODES = { reload: 'normal', 'hard-reload': 'hard', restart: 'restart' }
+  const runAccountCommand = (command, accountId, { fromKeyboard = false } = {}) => {
+    if (!accountId || !Object.hasOwn(RELOAD_MODES, command)) return false
+    // While a dialog is open the account views step aside, out of sight. A key pressed then is
+    // meant for the dialog, and a reload behind it would throw a draft away where nobody can
+    // see it go.
+    if (fromKeyboard && !manager.visible) return false
+    guard.arm(accountId, command)
+    return manager.reload(accountId, RELOAD_MODES[command])
+  }
 
   let closeToTray = Boolean(layout.closeToTray)
   let downloadDir = String(layout.downloadDir ?? '')
@@ -284,7 +302,18 @@ async function createWindow() {
     }
   }
 
-  ipcMain.handle('accounts:reload', (_event, accountId) => manager.reload(accountId ?? manager.activeId))
+  ipcMain.handle('accounts:reload', (_event, accountId, command = 'reload') =>
+    runAccountCommand(command, accountId ?? manager.activeId),
+  )
+
+  // The operator chose to leave a draft behind. Only what was refused a moment ago is repeated
+  // – the guard hands back nothing else – and the repeat itself is not armed again: it is the
+  // one navigation allowed past the page's refusal.
+  ipcMain.handle('accounts:proceed', (_event, accountId) => {
+    const action = guard.proceed(accountId)
+    if (!action) return false
+    return manager.reload(accountId, RELOAD_MODES[action])
+  })
 
   ipcMain.handle('closeToTray:get', () => closeToTray)
 
@@ -414,6 +443,9 @@ async function createWindow() {
   // bar, no back, no reload, and inside the account's signed-in session – measured, the
   // popup's session was the very same object as the view's. Which decision an address gets
   // is navigation.js's business; this is only the wiring.
+  //
+  // The sessions that already carry the download listener – see the end of gateNavigation.
+  const wiredSessions = new WeakSet()
   const gateNavigation = (view, account) => {
     const platform = PLATFORMS[account.platform]
 
@@ -475,7 +507,17 @@ async function createWindow() {
     // on the default session there is no way to tell whose file is arriving. Nothing here
     // reads or touches the page: this is the browser's own download path, which section 7 of
     // the design leaves alone.
-    view.webContents.session.on('will-download', (_event, item) => {
+    //
+    // Once per partition, not once per view. A session outlives its view – an account removed
+    // and added again under the same name gets the same partition, and the same session object,
+    // back – so registering with every view stacked a second listener on it, and with that a
+    // second "Downloading" message and a second save path for one file. The account is looked
+    // up when a file arrives, so the message names the account as it is now.
+    const accountSession = view.webContents.session
+    if (wiredSessions.has(accountSession)) return
+    wiredSessions.add(accountSession)
+    accountSession.on('will-download', (_event, item) => {
+      const owner = manager.accounts.get(account.id) ?? account
       const target = resolveDownloadDir(downloadDir, app.getPath('downloads'))
       const filename = item.getFilename()
 
@@ -486,7 +528,7 @@ async function createWindow() {
       if (plan.mode === 'dialog') item.setSaveDialogOptions({ defaultPath: plan.defaultPath })
       else item.setSavePath(plan.savePath)
 
-      const id = showMessage(tr('downloadStarted', { account: account.name, file: filename }), { tone: 'info' })
+      const id = showMessage(tr('downloadStarted', { account: owner.name, file: filename }), { tone: 'info' })
 
       // The banner used to say "downloading" for the rest of the session, because nothing
       // ever asked the download how it went.
@@ -536,17 +578,44 @@ async function createWindow() {
 
     // A dead renderer shows a blank rectangle and nothing else. Saying so, and saying which
     // account it happened to, is the difference between a bug report and a restart.
+    //
+    // Unless the application ended the renderer itself, to restart a page that had hung: that
+    // exit is reported like any crash, and announcing it would tell the operator about a crash
+    // nobody had.
     view.webContents.on('render-process-gone', (_event, details) => {
+      if (manager.takeExpectedExit(account.id)) {
+        logger.write('account-restarted', { account: account.id })
+        return
+      }
       logger.write('account-crashed', { account: account.id, reason: details.reason })
       showMessage(tr('accountCrashed', { account: account.name, reason: details.reason }), {
         offer: { action: 'reload', accountId: account.id },
       })
     })
 
+    // A hung page does not answer a reload – the request waits behind the very script that
+    // hung – so what is offered here is a restart of the renderer.
     view.webContents.on('unresponsive', () => {
       logger.write('account-unresponsive', { account: account.id })
       showMessage(tr('accountUnresponsive', { account: account.name }), {
-        offer: { action: 'reload', accountId: account.id },
+        offer: { action: 'reload', accountId: account.id, command: 'restart' },
+      })
+    })
+
+    // The page refused to be left – it holds something unsent – and Electron has quietly
+    // cancelled whatever was leaving it. Said out loud, with an offer to go ahead only when the
+    // refusal answers something just asked for here; the page's own navigations and the mouse's
+    // back button are refused the same way, and for those there is nothing to repeat.
+    view.webContents.on('will-prevent-unload', (event) => {
+      if (guard.allowed(account.id)) {
+        event.preventDefault()
+        return
+      }
+      const action = guard.blocked(account.id)
+      logger.write('account-unload-refused', { account: account.id, platform: account.platform, reason: action ?? 'page' })
+      showMessage(tr('unsavedChanges', { account: account.name }), {
+        tone: 'info',
+        offer: action ? { action: 'proceed', accountId: account.id } : null,
       })
     })
 

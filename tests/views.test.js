@@ -102,6 +102,106 @@ describe('unreadFromTitle at the edges', () => {
   })
 })
 
+describe('reloading an account', () => {
+  // A webContents that writes down what it was asked to do, in order, and answers the questions
+  // reload() asks before choosing what to do.
+  const recordingView = ({ url = 'https://web.whatsapp.com/', entries = 1, crashed = false, destroyed = false } = {}) => {
+    const calls = []
+    return {
+      calls,
+      setBounds() {},
+      setVisible() {},
+      webContents: {
+        isDestroyed: () => destroyed,
+        isCrashed: () => crashed,
+        getURL: () => url,
+        navigationHistory: { length: () => entries },
+        reload: () => calls.push('reload'),
+        reloadIgnoringCache: () => calls.push('reloadIgnoringCache'),
+        forcefullyCrashRenderer: () => calls.push('forcefullyCrashRenderer'),
+        loadURL: (address) => {
+          calls.push(`loadURL ${address}`)
+          return Promise.resolve()
+        },
+      },
+    }
+  }
+
+  const account = { id: 'acc-w', platform: 'whatsapp', url: 'https://web.whatsapp.com/' }
+
+  const managerHolding = (view, { now = () => 0 } = {}) => {
+    const manager = new ViewManager({ contentView: { addChildView() {} } }, 'UA', () => {}, { now })
+    manager.views.set(account.id, view)
+    manager.accounts.set(account.id, account)
+    return manager
+  }
+
+  test('an ordinary reload asks the page to reload', () => {
+    const view = recordingView()
+    expect(managerHolding(view).reload(account.id)).toBe(true)
+    expect(view.calls).toEqual(['reload'])
+  })
+
+  test('a hard reload goes past the cache', () => {
+    const view = recordingView()
+    managerHolding(view).reload(account.id, 'hard')
+    expect(view.calls).toEqual(['reloadIgnoringCache'])
+  })
+
+  // A view whose first load never committed has nothing to reload: reload() on an empty history
+  // does nothing and says nothing, so F5 would look dead on exactly the white rectangle it is
+  // pressed on. The account's own address is the page to go back to.
+  test('a view with nothing loaded yet is sent to the account address', () => {
+    const view = recordingView({ url: '', entries: 0 })
+    managerHolding(view).reload(account.id)
+    expect(view.calls).toEqual(['loadURL https://web.whatsapp.com/'])
+  })
+
+  // A hung renderer does not answer a reload – the request waits behind the very script that
+  // hung. Electron documents ending the renderer and reloading as the way out, and partitions
+  // never share a renderer process, so no other account goes down with it.
+  test('a restart ends the renderer and reloads', () => {
+    const view = recordingView()
+    managerHolding(view).reload(account.id, 'restart')
+    expect(view.calls).toEqual(['forcefullyCrashRenderer', 'reload'])
+  })
+
+  test('a renderer that is already dead is reloaded, not ended again', () => {
+    const view = recordingView({ crashed: true })
+    managerHolding(view).reload(account.id, 'restart')
+    expect(view.calls).toEqual(['reload'])
+  })
+
+  test('an account without a view, or with a destroyed one, is not reloaded', () => {
+    const manager = managerHolding(recordingView({ destroyed: true }))
+    expect(manager.reload(account.id)).toBe(false)
+    expect(manager.reload('acc-missing')).toBe(false)
+  })
+
+  // Ending the renderer on purpose fires render-process-gone like any crash, and the account
+  // would then announce a crash nobody had. The report arrives a task later, so the manager
+  // remembers that one is expected – and forgets it after a while, so a real crash later on is
+  // never swallowed by a restart nobody saw finish.
+  test('a restart makes the crash it causes expected, once and not for long', () => {
+    let clock = 1000
+    const manager = managerHolding(recordingView(), { now: () => clock })
+
+    manager.reload(account.id, 'restart')
+    expect(manager.takeExpectedExit(account.id)).toBe(true)
+    expect(manager.takeExpectedExit(account.id)).toBe(false)
+
+    manager.reload(account.id, 'restart')
+    clock += 10_000
+    expect(manager.takeExpectedExit(account.id)).toBe(false)
+  })
+
+  test('an ordinary reload expects no crash', () => {
+    const manager = managerHolding(recordingView())
+    manager.reload(account.id)
+    expect(manager.takeExpectedExit(account.id)).toBe(false)
+  })
+})
+
 describe('which accounts the badge believes', () => {
   const fakeView = (title) => ({
     webContents: { isDestroyed: () => false, getTitle: () => title },

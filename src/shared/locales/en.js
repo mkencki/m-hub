@@ -48,6 +48,8 @@ export const en = {
   accountUnresponsive: '{account} is not responding.',
   wokeUp: 'The computer woke up. Accounts may need reloading.',
   reloadAccount: 'Reload',
+  unsavedChanges: '{account} has unsaved changes, so the page stayed as it was.',
+  proceedAnyway: 'Discard changes',
   trayOpenLogs: 'Open log folder',
   tags: 'Tags',
   tagsHint: 'offer, client zone – separated by commas',

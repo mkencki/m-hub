@@ -27,6 +27,15 @@ describe('the channel menu', () => {
     expect(heading.enabled).toBe(false)
   })
 
+  // The status bar offers the same act when an account crashes or the computer wakes up. Two
+  // words for one act read as two different acts.
+  test('calls a reload by the name the status bar uses', () => {
+    for (const language of ['en', 'pl']) {
+      const template = channelMenuTemplate({ account, hasChildWindows: false, tr: (key) => t(language, key) })
+      expect(template.find((item) => item.id === 'reload').label).toBe(t(language, 'reloadAccount'))
+    }
+  })
+
   test('labels its items in the interface language', () => {
     const template = channelMenuTemplate({ account, hasChildWindows: false, tr: (key) => t('pl', key) })
     expect(template.find((item) => item.id === 'reload').label).toBe('Odśwież')

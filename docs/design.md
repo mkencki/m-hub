@@ -61,9 +61,9 @@ consequences follow, and none of them is optional:
 
 1. **A navigation and child-window contract becomes a precondition, not a nicety.** A whole
    service is full of outbound links, and its sign-in legitimately crosses origins
-   mid-flow. Without a policy the application is a browser with no address bar, no back
-   button and notifications granted in advance – a worse place to click a stranger's link
-   than the real browser next to it. Each platform therefore declares the hosts it owns
+   mid-flow. Without a policy the application is a browser with no address bar and
+   notifications granted in advance – a worse place to click a stranger's link than the real
+   browser next to it. Each platform therefore declares the hosts it owns
    and the hosts it authenticates through. Anything else opens in the system browser.
    Naive rules break this in both directions: blocking every off-origin navigation breaks
    OAuth, and allowing any host that merely *contains* the service name admits
@@ -103,7 +103,8 @@ main window (BrowserWindow)
 │   └── WebContentsView  session persist:acc-facebook   → facebook.com
 └── child window, on demand             ← a sign-in the service opens for itself,
                                           in the SAME session, titled by its origin,
-                                          sandboxed, and gone when its opener is
+                                          sandboxed, and gone when its opener is;
+                                          its own Back, Forward and Reload
 ```
 
 Each view costs about 250 MB once its page has loaded – measured 2026-08-25 at 754 MB for
@@ -134,9 +135,9 @@ windows.
 ### 4.2 `views` – the view manager
 
 Creates a `WebContentsView` per account, attaches its session, sets the `User-Agent`,
-governs geometry as the window resizes, switches the active view, and reloads an account in
-one of three ways – ordinary, past the cache, or by restarting its renderer. Knows nothing about
-where the account list came from.
+governs geometry as the window resizes, switches the active view, reloads an account in one of
+three ways – ordinary, past the cache, or by restarting its renderer – and steps an account back,
+forward or to its start page. Knows nothing about where the account list came from.
 
 ### 4.3 `macros` – the macro store
 
@@ -371,6 +372,14 @@ never on how a window was asked for – a sign-in popup and a link to an article
 apart by disposition or features. Host matching is a suffix comparison on a dot boundary, the
 external list is consulted first because link shims live on the service's own domain, and only
 `http:` and `https:` are ever handed to the system.
+
+*Amended for 0.6.1.* A step back or forward does not pass through `will-navigate`, and does not
+need to: the history holds only entries the view has already committed, each of which passed the
+rules on its way in. Steps go only where `canGoBack` and `canGoForward` allow – never
+`goToOffset`, which would walk into the entries Chromium marks as skippable because a page added
+them before anybody touched it. A window a page opened keeps its own history and its own Back,
+Forward and Reload, and it can hand a page of the service to the account view when the operator
+asks; a sign-in never, because it answers back to the window that opened it.
 
 **Stage 6 – macros 2.0. DONE 2026-08-25**, except 6.5, which needs the operator's consent
 because it would change the LETTER of rule 7.3, and 6.7, which waits for stage 7.

@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url'
 import { cleanUserAgent, ViewManager } from './views.js'
 import { loadLayout, saveLayout, centreOn, setAutoStart, isAutoStartOn, acceptHoverReport, HIDDEN_FLAG } from './shell.js'
 import { loadAccounts, PLATFORMS, notificationsAllowed } from './accounts.js'
-import { classify } from './navigation.js'
+import { classify, hostClass } from './navigation.js'
+import { accountMemoryMb, processIdsOf } from './account-memory.js'
 import { commandFor } from './key-commands.js'
 import { UnloadGuard } from './unload-guard.js'
 import { channelMenuTemplate } from './channel-menu.js'
@@ -38,6 +39,8 @@ const MACRO_SHORTCUT = 'Control+Shift+Space'
 // is the complaint this whole path exists to answer. A FAILED download does not disappear –
 // that one the operator has to notice.
 const DOWNLOAD_MESSAGE_MS = 8000
+// When the memory of each account is first written to the log – see logAccountMemory.
+const ACCOUNT_MEMORY_AFTER_MS = 15 * 60 * 1000
 
 // app.getName() rather than a literal: this is the ONE place that knows what the application
 // is called, and Electron puts that name straight into the default User-Agent.
@@ -419,12 +422,30 @@ async function createWindow() {
   // because answering it means walking the whole profile – see about.js.
   const manifest = JSON.parse(readFileSync(path.join(app.getAppPath(), 'package.json'), 'utf8'))
 
-  ipcMain.handle('about:get', () => ({
-    ...describeBuild(manifest, process.versions, app.isPackaged),
-    profileDir: dataDir,
-    homepage: manifest.homepage,
-    license: manifest.license,
-  }))
+  // What each awake account costs, written down for the decision on putting accounts to sleep –
+  // see account-memory.js. Taken when Settings is opened and once a quarter of an hour after the
+  // start, by which time the pages have settled into what they cost for the rest of the day.
+  const logAccountMemory = () => {
+    if (window.isDestroyed()) return
+    const metrics = app.getAppMetrics()
+    for (const [accountId, account] of manager.accounts) {
+      const view = manager.views.get(accountId)
+      if (!view || view.webContents.isDestroyed() || view.webContents.isCrashed()) continue
+      const megabytes = accountMemoryMb(metrics, processIdsOf(view.webContents))
+      if (megabytes === null) continue
+      logger.write('account-memory', { account: accountId, platform: account.platform, count: megabytes, reason: 'awake' })
+    }
+  }
+
+  ipcMain.handle('about:get', () => {
+    logAccountMemory()
+    return {
+      ...describeBuild(manifest, process.versions, app.isPackaged),
+      profileDir: dataDir,
+      homepage: manifest.homepage,
+      license: manifest.license,
+    }
+  })
 
   ipcMain.handle('about:profile-size', () => directorySize(dataDir))
 
@@ -499,6 +520,15 @@ async function createWindow() {
     }
 
     view.webContents.setWindowOpenHandler((details) => {
+      // A measurement for the decision on popups: how many of them are sign-ins, and how many
+      // are articles a click opened. The class and the disposition, never the address – the
+      // address is where the person or the page would be.
+      logger.write('window-open', {
+        account: account.id,
+        platform: account.platform,
+        code: hostClass(platform, details.url),
+        reason: details.disposition,
+      })
       const verdict = classify(platform, details.url, { viaWindowOpen: true })
       if (verdict === 'external') sendOut(details.url)
       if (verdict !== 'child') return { action: 'deny' }
@@ -734,6 +764,7 @@ async function createWindow() {
   }
   if (quitting || window.isDestroyed()) return
   refreshBadge()
+  setTimeout(logAccountMemory, ACCOUNT_MEMORY_AFTER_MS)
 
   // A laptop coming back from sleep leaves the services believing the computer is gone.
   // Reloading by itself would throw away whatever the operator was in the middle of typing

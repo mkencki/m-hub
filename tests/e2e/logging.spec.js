@@ -2,6 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test'
 import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { blankTheViews } from './helpers.js'
 
 let dataDir
 let electronApp
@@ -70,4 +71,55 @@ test('a crash is recorded by account id, not by the name of a person', async () 
   expect(log).toContain('account=acc-work')
   expect(log).not.toContain('Anna')
   expect(log).not.toContain('Nowak')
+})
+
+// What an awake account costs is the number the decision on putting accounts to sleep waits
+// for. Opening Settings writes it down – asked here the way the nameplate asks – in whole
+// megabytes, against the account id.
+test('opening Settings writes down what each awake account costs in memory', async () => {
+  const memoryLine = /account-memory account=acc-work platform=whatsapp count=\d+ reason=awake/
+
+  // The view's renderer starts with the view, but nothing promises it before the window is
+  // ready, so the question is asked until there is a process to answer it.
+  await expect
+    .poll(async () => {
+      await page.evaluate(() => window.mHub.about())
+      return memoryLine.test(await readLog().catch(() => ''))
+    })
+    .toBe(true)
+  expect(await readLog()).not.toContain('Anna')
+})
+
+// The decision on popups waits for how many are sign-ins and how many are articles. The log
+// says which kind of host a window was asked for, and never the address – that is where the
+// person or the page would be.
+test('a window a page asks for is logged by the kind of host, never by its address', async () => {
+  await expect
+    .poll(() =>
+      electronApp.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].contentView.children.length),
+    )
+    .toBe(1)
+  // about:blank gives the view a script context of its own to ask for the window from – see
+  // blankTheViews.
+  await blankTheViews(electronApp)
+  // An outgoing link is handed to the system browser. Nothing here is about that browser, so
+  // the hand-over is answered on the spot instead of opening one on the machine running this.
+  await electronApp.evaluate(({ shell }) => {
+    shell.openExternal = async () => {}
+  })
+
+  await electronApp.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0]
+      .contentView.children[0].webContents.executeJavaScript(
+        'window.open("https://example.org/anna-nowak/private-album?from=chat"), 1',
+      ),
+  )
+
+  await expect
+    .poll(async () => /window-open account=acc-work platform=whatsapp code=external reason=\S+/.test(await readLog()))
+    .toBe(true)
+  const log = await readLog()
+  expect(log).not.toContain('example.org')
+  expect(log).not.toContain('anna-nowak')
+  expect(log).not.toContain('private-album')
 })

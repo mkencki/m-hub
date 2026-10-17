@@ -164,6 +164,8 @@ siadania przy jego komputerze.
 **Zapisuje rodzaje zdarzeń i kody błędów – i nic poza tym.** Żadnej treści wiadomości, żadnej
 treści makr, żadnych nazw załączników, tytułów stron ani nazw rozmów. Konto występuje pod swoim
 identyfikatorem, nigdy pod nazwą, którą mu nadałeś – ta nazwa to bardzo często czyjeś imię.
+Zapisują się też dwa pomiary: ile megabajtów zajmuje każde konto i na jakim rodzaju hosta strona
+poprosiła o nowe okno – serwis, logowanie, opakowanie linku, coś innego – nigdy sam adres.
 To nie jest obietnica co do sposobu pisania kodu: `src/main/log.js` zapisuje wyłącznie pola
 z krótkiej zadeklarowanej listy i po cichu odrzuca całą resztę, a
 [`tests/log.test.js`](tests/log.test.js) padnie, jeśli ta lista urośnie bez czyjejś decyzji.

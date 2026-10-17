@@ -167,7 +167,10 @@ computer.
 
 **It records kinds of event and error codes, and nothing else.** No message text, no macro
 content, no attachment names, no page titles and no conversation names. An account appears by
-its identifier, never by the name you gave it – that name is frequently a person. This is not
+its identifier, never by the name you gave it – that name is frequently a person. Two
+measurements are written as well: how many megabytes each account takes, and what kind of host
+a page asked to open a window on – the service, a sign-in, a link wrapper, somewhere else –
+never the address itself. This is not
 a promise about how the logging code is written: `src/main/log.js` writes only the fields on a
 short declared list and silently drops everything else, and
 [`tests/log.test.js`](tests/log.test.js) fails if that list grows without someone meaning it to.

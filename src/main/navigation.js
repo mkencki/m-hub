@@ -27,7 +27,11 @@ function shimMatches(url, entry) {
   return url.hostname === entry.slice(0, slash) && url.pathname.startsWith(entry.slice(slash))
 }
 
-export function classify(platform, address, { viaWindowOpen = false } = {}) {
+// What kind of place an address is, by the platform's declared lists: 'service', 'auth',
+// 'shim', 'external' or 'block'. classify decides from this, and the log records it in place
+// of the address – a sign-in popup and an article look the same by disposition, and only the
+// class tells them apart without saying which person or page it was.
+export function hostClass(platform, address) {
   let url
   try {
     url = new URL(String(address))
@@ -46,13 +50,16 @@ export function classify(platform, address, { viaWindowOpen = false } = {}) {
   // BEFORE the host list, not after. A link shim makes every outgoing link look like a URL
   // on the service's own domain, so checking hosts first would keep the entire web inside
   // the account view.
-  if (external.some((entry) => shimMatches(url, entry))) return 'external'
+  if (external.some((entry) => shimMatches(url, entry))) return 'shim'
+  if (hosts.some((entry) => hostMatches(url.hostname, entry))) return 'service'
+  if (authHosts.some((entry) => hostMatches(url.hostname, entry))) return 'auth'
+  return 'external'
+}
 
-  const known =
-    hosts.some((entry) => hostMatches(url.hostname, entry)) ||
-    authHosts.some((entry) => hostMatches(url.hostname, entry))
-
-  if (!known) return 'external'
+export function classify(platform, address, { viaWindowOpen = false } = {}) {
+  const kind = hostClass(platform, address)
+  if (kind === 'block') return 'block'
+  if (kind === 'shim' || kind === 'external') return 'external'
 
   // The same address means different things depending on how it was reached. Following a
   // link keeps it where the operator is already looking; a page ASKING for a window gets

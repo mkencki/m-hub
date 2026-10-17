@@ -55,20 +55,55 @@ test.afterEach(async () => {
   await Promise.race([cleanup, new Promise((done) => setTimeout(done, 3000))])
 })
 
-const inView = (script, userGesture = false) =>
-  electronApp.evaluate(
-    ({ webContents }, { id, script, userGesture }) => webContents.fromId(id).executeJavaScript(script, userGesture),
-    { id: viewId, script, userGesture },
-  )
+const inView = (script) =>
+  electronApp.evaluate(({ webContents }, { id, script }) => webContents.fromId(id).executeJavaScript(script), {
+    id: viewId,
+    script,
+  })
 
 const mark = () => inView('window.__mark = "here", 1')
 const markSurvives = () => inView('window.__mark === "here"').catch(() => false)
 
-// A page that refuses to be left while it holds something unsent, the way a composer with a
-// draft does. Chromium only honours the refusal from a page the user has interacted with, and
-// running the script as a user gesture is that interaction.
-const guardADraft = () =>
-  inView("window.addEventListener('beforeunload', (event) => { event.preventDefault(); event.returnValue = '' }), 1", true)
+// Whether the main process has the account view shown. A dialog hides the views and closing it
+// shows them again, but both go through the renderer's queued close event and an IPC call, so
+// the dialog can look open or closed a moment before the views have followed. A key sent in that
+// moment answers a different question from the one the test asks.
+const viewShown = () =>
+  electronApp.evaluate(({ BrowserWindow }, id) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      const view = window.contentView.children.find((child) => child.webContents?.id === id)
+      if (view) return view.getVisible()
+    }
+    return null
+  }, viewId)
+
+// A page refusing to be left, as Electron reports it. A real beforeunload cannot stand in for
+// this here: Playwright is attached to the account view over the DevTools protocol, takes the
+// refusal for a dialog of its own and fails the test trying to dismiss a dialog Electron never
+// showed – measured on CI, run 38990782830, "Page.handleJavaScriptDialog: No dialog is showing".
+// Outside a debugger there is no such path. So the report is delivered directly, as
+// recovery.spec.js delivers a crash, and the answer is whether the application overrode the page.
+const refuseToUnload = () =>
+  electronApp.evaluate(({ webContents }, id) => {
+    let overridden = false
+    webContents.fromId(id).emit('will-prevent-unload', {
+      preventDefault: () => {
+        overridden = true
+      },
+    })
+    return overridden
+  }, viewId)
+
+// Counts reload() on the account view instead of doing it, so the page – and the refusal it is
+// pretending to make – stays where it is.
+const countReloads = () =>
+  electronApp.evaluate(({ webContents }, id) => {
+    globalThis.__reloads = 0
+    webContents.fromId(id).reload = () => {
+      globalThis.__reloads += 1
+    }
+  }, viewId)
+const reloads = () => electronApp.evaluate(() => globalThis.__reloads)
 
 test('F5 in the account view reloads the account', async () => {
   await mark()
@@ -134,6 +169,7 @@ test('F5 while a dialog is open leaves the account alone', async () => {
   await mark()
   await page.locator('#open-settings').click()
   await expect(page.locator('#settings-dialog')).toBeVisible()
+  await expect.poll(viewShown).toBe(false)
 
   await pressKey(electronApp, windowContentsId, 'F5')
   // Nothing to wait for when nothing happens; the second half of the test is what proves the
@@ -143,6 +179,7 @@ test('F5 while a dialog is open leaves the account alone', async () => {
 
   await page.locator('#close-settings').click()
   await expect(page.locator('#settings-dialog')).toBeHidden()
+  await expect.poll(viewShown).toBe(true)
   await pressKey(electronApp, windowContentsId, 'F5')
   await expect.poll(markSurvives).toBe(false)
 })
@@ -150,34 +187,35 @@ test('F5 while a dialog is open leaves the account alone', async () => {
 // In a WebContentsView a page's refusal is silent: no dialog, no error, the reload just does not
 // happen. Before this, F5 on a page with a draft did nothing at all, with nothing to say why.
 test('a reload refused by a page with a draft is reported, and can be pushed through', async () => {
-  await mark()
-  await guardADraft()
-
+  await countReloads()
   await pressKey(electronApp, viewId, 'F5')
+  await expect.poll(reloads).toBe(1)
 
+  // The page refuses: the message says so and offers to go ahead, and the page is not overridden.
+  expect(await refuseToUnload()).toBe(false)
   await expect(page.locator('#message')).toBeVisible()
   await expect(page.locator('#message-text')).toContainText('Account one')
   await expect(page.locator('#proceed-anyway')).toBeVisible()
-  expect(await markSurvives()).toBe(true)
 
+  // Going ahead repeats the reload, and the refusal that repeat meets is the one let through.
   await page.locator('#proceed-anyway').click()
-  await expect.poll(markSurvives).toBe(false)
+  await expect.poll(reloads).toBe(2)
+  expect(await refuseToUnload()).toBe(true)
   await expect(page.locator('#message')).toBeHidden()
+
+  // Once: the next refusal is the page's again.
+  expect(await refuseToUnload()).toBe(false)
 })
 
-// The page's own navigations are refused the same way and pass through nothing the application
-// asked for, so there is nothing to push through – offering it would repeat whatever the
-// application did last.
-test('a refusal of the page own navigation is reported without an offer', async () => {
-  await mark()
-  await guardADraft()
-
-  await inView('setTimeout(() => location.reload(), 0), 1')
+// The page's own navigations, and the mouse's back button, are refused the same way and pass
+// through nothing the application asked for. There is nothing to push through – offering it
+// would repeat whatever the application did last.
+test('a refusal nobody here asked for is reported without an offer', async () => {
+  expect(await refuseToUnload()).toBe(false)
 
   await expect(page.locator('#message')).toBeVisible()
   await expect(page.locator('#message-text')).toContainText('Account one')
   await expect(page.locator('#proceed-anyway')).toBeHidden()
-  expect(await markSurvives()).toBe(true)
 })
 
 // Ctrl+; in the application window belongs to the renderer. When the interceptor in the main

@@ -74,7 +74,7 @@ zainstalowana tego nie potrzebuje – jej instalator zakłada taki sam skrót.
 | **Język** | angielski i polski, przełączany w Ustawieniach bez restartu; wybór przeżywa restart |
 | **Klawiatura** | `Ctrl+1`..`Ctrl+9` skaczą do kanału, `Ctrl+;` otwiera makra, `Ctrl+Shift+Space` robi to z dowolnego programu, `F5` lub `Ctrl+R` przeładowuje oglądane konto, `Ctrl+F5` – z pominięciem pamięci podręcznej |
 | **Zasobnik** | zamknięcie okna zostawia apkę żywą i czuwającą; można to wyłączyć w Ustawieniach. Autostart naprawdę startuje ukryty |
-| **Odzyskiwanie** | konto, które padło, zawisło albo się zdezaktualizowało, proponuje przeładowanie w pasku statusu – nic nie przeładowuje się samo, bo to skasowałoby na wpół napisaną wiadomość; strona z niezapisanymi zmianami mówi o tym, zamiast po cichu zignorować przeładowanie, i proponuje je porzucić |
+| **Odzyskiwanie** | konto, które padło, zawisło albo się zdezaktualizowało, proponuje przeładowanie w pasku statusu – nic nie przeładowuje się samo, bo to skasowałoby na wpół napisaną wiadomość; strona z niezapisanymi zmianami mówi o tym, zamiast po cichu zignorować przeładowanie, i proponuje je porzucić; prawy klik na kanale odświeża, odświeża twardo albo uruchamia od nowa to konto, a ty dalej oglądasz inne |
 | **Linki** | link z rozmowy otwiera się w twojej przeglądarce, a nie w oknie bez paska adresu, niosącym twoją zalogowaną sesję |
 | **Pobieranie** | plik z rozmowy melduje, że się zapisał, i podaje odnośnik do folderu; w Ustawieniach jest folder pobierania i przełącznik „pytaj za każdym razem” |
 | **O aplikacji** | tabliczka na dole Ustawień: wersja, data i commit budowy, Electron i Chromium, folder profilu z rozmiarem na dysku i przyciskiem, który go otwiera, licencja i kod źródłowy |

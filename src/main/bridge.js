@@ -82,8 +82,10 @@ export function registerAccountChannels({
     if (!result.ok) return result
 
     // Neither the view nor the partition is touched: the id stays the same, so the
-    // sign-in lives on.
+    // sign-in lives on. The manager is told, though – it names the account in the channel menu.
     await saveAccounts(accountsFile, result.accounts)
+    const updated = result.accounts.find((a) => a.id === accountId)
+    if (updated) manager.update(updated)
     return { ok: true }
   })
 

@@ -179,6 +179,12 @@ async function refreshRail() {
 
     channel.append(chip, name, meta)
     channel.addEventListener('click', () => switchTo(account.id))
+    // The menu is the main process's to draw: a native one can stand over the account views,
+    // which sit above this page and would cover anything drawn here.
+    channel.addEventListener('contextmenu', (event) => {
+      event.preventDefault()
+      window.mHub.openChannelMenu(account.id)
+    })
     channels.append(channel)
   }
 

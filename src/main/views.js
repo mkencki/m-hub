@@ -109,6 +109,13 @@ export class ViewManager {
     return view
   }
 
+  // An edit keeps the view and its sign-in – the id does not change – but the name and the
+  // rest are read from here by whatever names the account later: the channel menu, a download
+  // message. Only an account that already has a view is replaced; adding one is add()'s job.
+  update(account) {
+    if (this.views.has(account.id)) this.accounts.set(account.id, account)
+  }
+
   remove(accountId) {
     const view = this.views.get(accountId)
     if (!view) return false

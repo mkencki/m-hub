@@ -202,6 +202,32 @@ describe('reloading an account', () => {
   })
 })
 
+describe('the accounts the manager knows', () => {
+  const account = { id: 'acc-w', name: 'WhatsApp', platform: 'whatsapp', url: 'https://web.whatsapp.com/' }
+
+  const managerHolding = () => {
+    const manager = new ViewManager({ contentView: { addChildView() {} } }, 'UA')
+    manager.views.set(account.id, { webContents: { isDestroyed: () => false } })
+    manager.accounts.set(account.id, account)
+    return manager
+  }
+
+  // The channel menu names the account it acts on, and a rename keeps the view and its
+  // sign-in. A manager that went on holding the account as it was added would label the menu
+  // with a name the rail no longer shows.
+  test('an account edited while the app runs is known as it is now', () => {
+    const manager = managerHolding()
+    manager.update({ ...account, name: 'WhatsApp work' })
+    expect(manager.accounts.get(account.id).name).toBe('WhatsApp work')
+  })
+
+  test('an update for an account without a view adds nothing', () => {
+    const manager = managerHolding()
+    manager.update({ ...account, id: 'acc-missing' })
+    expect(manager.accounts.has('acc-missing')).toBe(false)
+  })
+})
+
 describe('which accounts the badge believes', () => {
   const fakeView = (title) => ({
     webContents: { isDestroyed: () => false, getTitle: () => title },

@@ -8,6 +8,7 @@ import { loadAccounts, PLATFORMS, notificationsAllowed } from './accounts.js'
 import { classify } from './navigation.js'
 import { commandFor } from './key-commands.js'
 import { UnloadGuard } from './unload-guard.js'
+import { channelMenuTemplate } from './channel-menu.js'
 import { registerAccountChannels, registerMacroChannels } from './bridge.js'
 import { createClipboardSession } from './file-clipboard.js'
 import { createLogger } from './log.js'
@@ -213,8 +214,20 @@ async function createWindow() {
   // be traced back to it and the operator offered to go ahead with exactly that.
   const guard = new UnloadGuard()
 
-  // Every request to act on an account comes through here – a key, the status bar – so the
-  // rules below cannot differ between the ways in.
+  // Accounts whose page is loading because of something asked for HERE – the view being
+  // created, a reload – rather than something the page did. A view takes the system's focus
+  // while it loads, and that is not a clicked notification: the focus listener in prepareView
+  // routes nothing for an account in this set. It used to be a flag inside prepareView, set
+  // once by the first load, which a reload of an account in the background could not reach.
+  const settling = new Set()
+  const reloadView = (accountId, mode) => {
+    const started = manager.reload(accountId, mode)
+    if (started) settling.add(accountId)
+    return started
+  }
+
+  // Every request to act on an account comes through here – a key, the status bar, the
+  // channel menu – so the rules below cannot differ between the ways in.
   const RELOAD_MODES = { reload: 'normal', 'hard-reload': 'hard', restart: 'restart' }
   const runAccountCommand = (command, accountId, { fromKeyboard = false } = {}) => {
     if (!accountId || !Object.hasOwn(RELOAD_MODES, command)) return false
@@ -223,7 +236,7 @@ async function createWindow() {
     // see it go.
     if (fromKeyboard && !manager.visible) return false
     guard.arm(accountId, command)
-    return manager.reload(accountId, RELOAD_MODES[command])
+    return reloadView(accountId, RELOAD_MODES[command])
   }
 
   let closeToTray = Boolean(layout.closeToTray)
@@ -236,6 +249,10 @@ async function createWindow() {
   let railPinned = Boolean(layout.railPinned)
   let railHovered = false
   const railExpanded = () => railPinned || railHovered
+  // While a channel's menu is open the pointer is over the menu, not the rail, and Chromium
+  // reports that as the pointer leaving. Acted on, the rail would fold away under the menu and
+  // take the channel that was clicked with it – so leaves wait until the menu closes.
+  let channelMenuOpen = false
 
   const fitViews = () => {
     // resize arrives from the window and account changes from the bridge; neither knows
@@ -264,6 +281,7 @@ async function createWindow() {
   // Not every mouseleave the renderer reports means the pointer left – see
   // acceptHoverReport in shell.js, where the rule and the measurement behind it live.
   ipcMain.handle('rail:hover', (_event, hovered, pointerStillInside) => {
+    if (!hovered && channelMenuOpen) return
     if (!acceptHoverReport({ hovered, pointerStillInside, windowFocused: window.isFocused() })) return
     railHovered = Boolean(hovered)
     fitViews()
@@ -312,7 +330,31 @@ async function createWindow() {
   ipcMain.handle('accounts:proceed', (_event, accountId) => {
     const action = guard.proceed(accountId)
     if (!action) return false
-    return manager.reload(accountId, RELOAD_MODES[action])
+    return reloadView(accountId, RELOAD_MODES[action])
+  })
+
+  // A right click on a channel – see channel-menu.js for what it offers and why. Opened where
+  // the pointer is. Once it closes, chosen from or not, the renderer is asked where the pointer
+  // is now, as when the window comes back to the front: the leaves held back meanwhile are
+  // gone, and Chromium sends no second one.
+  ipcMain.handle('accounts:menu', (_event, accountId) => {
+    const account = manager.accounts.get(accountId)
+    if (!account || window.isDestroyed()) return false
+    const template = channelMenuTemplate({ account, hasChildWindows: Boolean(childWindows.get(accountId)?.size), tr })
+    const menu = Menu.buildFromTemplate(
+      template.map((item) =>
+        Object.hasOwn(RELOAD_MODES, item.id) ? { ...item, click: () => runAccountCommand(item.id, accountId) } : item,
+      ),
+    )
+    channelMenuOpen = true
+    menu.popup({
+      window,
+      callback: () => {
+        channelMenuOpen = false
+        if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('rail:recheck')
+      },
+    })
+    return true
   })
 
   ipcMain.handle('closeToTray:get', () => closeToTray)
@@ -446,6 +488,9 @@ async function createWindow() {
   //
   // The sessions that already carry the download listener – see the end of gateNavigation.
   const wiredSessions = new WeakSet()
+  // Account id -> the windows its page has open. Restarting the page can take them down with it,
+  // and the channel menu says so before the click rather than after.
+  const childWindows = new Map()
   const gateNavigation = (view, account) => {
     const platform = PLATFORMS[account.platform]
 
@@ -490,6 +535,11 @@ async function createWindow() {
       // the webContents the call is accepted and does nothing, which is how a guard comes
       // to look like it works.
       child.on('page-title-updated', (event) => event.preventDefault())
+
+      if (!childWindows.has(account.id)) childWindows.set(account.id, new Set())
+      const open = childWindows.get(account.id)
+      open.add(child)
+      child.once('closed', () => open.delete(child))
     })
 
     // Only will-navigate, deliberately. A redirect is the continuation of a navigation that
@@ -611,6 +661,9 @@ async function createWindow() {
         event.preventDefault()
         return
       }
+      // The reload never started, so no load will finish and take the account out of settling:
+      // left there, it would stop a clicked notification from ever switching to it again.
+      settling.delete(account.id)
       const action = guard.blocked(account.id)
       logger.write('account-unload-refused', { account: account.id, platform: account.platform, reason: action ?? 'page' })
       showMessage(tr('unsavedChanges', { account: account.name }), {
@@ -623,14 +676,14 @@ async function createWindow() {
     // notification click: measured, two accounts produced two such events, both from a
     // webContents still loading with an empty URL, and which account came out current was
     // left to whichever landed last. A toast cannot come from a page that has never
-    // loaded, so nothing is routed until the first load has finished, one way or the other.
-    let loadSettled = false
-    view.webContents.once('did-stop-loading', () => {
-      loadSettled = true
-    })
+    // loaded, so nothing is routed until the first load has finished, one way or the other –
+    // and the same holds for every reload asked for here, which loads the page again while
+    // the operator is, as often as not, looking at a different account.
+    settling.add(account.id)
+    view.webContents.on('did-stop-loading', () => settling.delete(account.id))
 
     view.webContents.on('focus', () => {
-      if (!loadSettled) return
+      if (settling.has(account.id)) return
       if (manager.activeId === account.id) return
       if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return
       window.webContents.send('accounts:select-id', account.id)

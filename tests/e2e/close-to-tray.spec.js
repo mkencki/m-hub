@@ -1,5 +1,5 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -74,8 +74,12 @@ test('Settings shows the switch and turning it off is remembered', async () => {
   await page.locator('#close-to-tray').uncheck()
   await page.locator('#close-settings').click()
 
-  const saved = JSON.parse(await (await import('node:fs/promises')).readFile(path.join(dataDir, 'layout.json'), 'utf8'))
-  expect(saved.closeToTray).toBe(false)
+  // The switch is saved by the main process after an IPC call, as a write and a rename, so the
+  // file can still be on its way when the dialog has closed – measured on CI, run 38994251448,
+  // ENOENT on a read made straight after the click. What is asked is whether it gets written.
+  const savedCloseToTray = () =>
+    readFile(path.join(dataDir, 'layout.json'), 'utf8').then((text) => JSON.parse(text).closeToTray, () => null)
+  await expect.poll(savedCloseToTray).toBe(false)
 
   const exited = new Promise((resolve) => electronApp.process().once('exit', resolve))
   await closeWindow()

@@ -79,9 +79,9 @@ installed build needs none of this: its installer writes the same shortcut.
 | **Placeholders** | write `{name}` in a macro and it asks you before it inserts; `{date}` fills itself |
 | **Attachments** | PDF and mp4 **copied into the app's own storage** – you no longer need the original file; 100 MB limit |
 | **Language** | English and Polish, switched in Settings without restarting; the choice survives a restart |
-| **Keyboard** | `Ctrl+1`..`Ctrl+9` jump to a channel, `Ctrl+;` opens macros, `Ctrl+Shift+Space` does it from any program, `Ctrl+R` reloads the account you are looking at |
+| **Keyboard** | `Ctrl+1`..`Ctrl+9` jump to a channel, `Ctrl+;` opens macros, `Ctrl+Shift+Space` does it from any program, `F5` or `Ctrl+R` reloads the account you are looking at, `Ctrl+F5` reloads it past the cache |
 | **Tray** | closing the window keeps the app running and noticing; switch it off in Settings. Autostart really does start hidden |
-| **Recovery** | a crashed, hung or stale account offers a reload in the status bar – nothing reloads by itself, because that would throw away a half-typed message |
+| **Recovery** | a crashed, hung or stale account offers a reload in the status bar – nothing reloads by itself, because that would throw away a half-typed message; a page holding unsaved changes says so instead of silently ignoring the reload, and offers to discard them; a right click on a channel reloads, hard-reloads or restarts that account while you go on looking at another |
 | **Links** | a link out of a conversation opens in your own browser, not in a window without an address bar carrying your signed-in session |
 | **Downloads** | a file from a conversation says when it has landed and offers the folder it landed in; Settings holds the folder and whether you are asked each time |
 | **About** | a nameplate at the foot of Settings: version, build date and commit, Electron and Chromium, the profile folder with its size on disk and a button that opens it, licence and source |
@@ -167,7 +167,10 @@ computer.
 
 **It records kinds of event and error codes, and nothing else.** No message text, no macro
 content, no attachment names, no page titles and no conversation names. An account appears by
-its identifier, never by the name you gave it – that name is frequently a person. This is not
+its identifier, never by the name you gave it – that name is frequently a person. Two
+measurements are written as well: how many megabytes each account takes, and what kind of host
+a page asked to open a window on – the service, a sign-in, a link wrapper, somewhere else –
+never the address itself. This is not
 a promise about how the logging code is written: `src/main/log.js` writes only the fields on a
 short declared list and silently drops everything else, and
 [`tests/log.test.js`](tests/log.test.js) fails if that list grows without someone meaning it to.

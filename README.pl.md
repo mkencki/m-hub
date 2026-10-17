@@ -72,9 +72,9 @@ zainstalowana tego nie potrzebuje – jej instalator zakłada taki sam skrót.
 | **Zmienne** | wpisz `{imię}` w makrze, a apka zapyta o wartość przed wstawieniem; `{data}` uzupełnia się sama |
 | **Załączniki** | PDF i mp4 **kopiowane do magazynu aplikacji** – oryginalny plik przestaje być potrzebny; limit 100 MB |
 | **Język** | angielski i polski, przełączany w Ustawieniach bez restartu; wybór przeżywa restart |
-| **Klawiatura** | `Ctrl+1`..`Ctrl+9` skaczą do kanału, `Ctrl+;` otwiera makra, `Ctrl+Shift+Space` robi to z dowolnego programu, `Ctrl+R` przeładowuje oglądane konto |
+| **Klawiatura** | `Ctrl+1`..`Ctrl+9` skaczą do kanału, `Ctrl+;` otwiera makra, `Ctrl+Shift+Space` robi to z dowolnego programu, `F5` lub `Ctrl+R` odświeża oglądane konto, `Ctrl+F5` odświeża je twardo, z pominięciem pamięci podręcznej |
 | **Zasobnik** | zamknięcie okna zostawia apkę żywą i czuwającą; można to wyłączyć w Ustawieniach. Autostart naprawdę startuje ukryty |
-| **Odzyskiwanie** | konto, które padło, zawisło albo się zdezaktualizowało, proponuje przeładowanie w pasku statusu – nic nie przeładowuje się samo, bo to skasowałoby na wpół napisaną wiadomość |
+| **Odzyskiwanie** | konto, które padło, zawisło albo się zdezaktualizowało, proponuje odświeżenie w pasku statusu – nic nie odświeża się samo, bo to skasowałoby na wpół napisaną wiadomość; strona z niezapisanymi zmianami mówi o tym, zamiast po cichu zignorować odświeżenie, i proponuje je porzucić; prawy klik na kanale odświeża, odświeża twardo albo uruchamia od nowa to konto, a ty dalej oglądasz inne |
 | **Linki** | link z rozmowy otwiera się w twojej przeglądarce, a nie w oknie bez paska adresu, niosącym twoją zalogowaną sesję |
 | **Pobieranie** | plik z rozmowy melduje, że się zapisał, i podaje odnośnik do folderu; w Ustawieniach jest folder pobierania i przełącznik „pytaj za każdym razem” |
 | **O aplikacji** | tabliczka na dole Ustawień: wersja, data i commit budowy, Electron i Chromium, folder profilu z rozmiarem na dysku i przyciskiem, który go otwiera, licencja i kod źródłowy |
@@ -164,6 +164,8 @@ siadania przy jego komputerze.
 **Zapisuje rodzaje zdarzeń i kody błędów – i nic poza tym.** Żadnej treści wiadomości, żadnej
 treści makr, żadnych nazw załączników, tytułów stron ani nazw rozmów. Konto występuje pod swoim
 identyfikatorem, nigdy pod nazwą, którą mu nadałeś – ta nazwa to bardzo często czyjeś imię.
+Zapisują się też dwa pomiary: ile megabajtów zajmuje każde konto i na jakim rodzaju hosta strona
+poprosiła o nowe okno – serwis, logowanie, opakowanie linku, coś innego – nigdy sam adres.
 To nie jest obietnica co do sposobu pisania kodu: `src/main/log.js` zapisuje wyłącznie pola
 z krótkiej zadeklarowanej listy i po cichu odrzuca całą resztę, a
 [`tests/log.test.js`](tests/log.test.js) padnie, jeśli ta lista urośnie bez czyjejś decyzji.

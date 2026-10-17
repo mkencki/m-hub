@@ -1,5 +1,41 @@
 # Release notes
 
+## 0.6.0 – reload any account, from the keyboard or the rail
+
+**F5 reloads the account you are looking at.** So does Ctrl+R, and Ctrl+F5 or Shift+F5 reloads
+it past the cache – the way back from a white rectangle after the internet dropped, without
+restarting the application or the other accounts. The keys work whether the keyboard is in the
+page or in the application around it, holding F5 down is one reload rather than a stream of
+them, and while Settings or another dialog is open they do nothing, because a reload behind a
+dialog would throw a draft away where nobody can see it go.
+
+**A right click on a channel opens a menu for THAT account:** Reload, Hard reload and Restart,
+under the name of the account it acts on. A white WhatsApp behind the Messenger you are using
+comes back without switching to it first, and the channel in front stays in front. Restart
+ends the page's process and starts it again – the way out of a page that hangs and does not
+answer a reload – and when the account has a window of its own open, a sign-in for instance,
+the item says that window may close too. The rail no longer folds away under the menu.
+
+**A page holding an unsent draft can refuse to be reloaded, and now says so.** Before, the
+refusal was silent and F5 looked broken. The status bar names the account, and when the
+refusal answers a reload you just asked for, it offers to discard the changes and go ahead.
+A hung account is offered a restart instead of a reload, since a hung page does not answer
+a reload at all.
+
+**One word for one act.** The Polish status bar said "Przeładuj" where the new menu says
+"Odśwież"; both now say "Odśwież", and so does the message shown after the computer wakes up.
+
+**Fixed along the way.** Removing an account and adding it back under the same name made every
+download from it announce itself twice, because each new view stacked another listener on the
+same session. And an account renamed while the application ran kept its old name in the
+download message; it now goes by the name the rail shows.
+
+**Two measurements in the log**, for the next two decisions – whether popups should open inside
+the account and whether accounts should be put to sleep. When a page asks for a window, the log
+records what kind of host it was for – the service, a sign-in, a link wrapper, somewhere else –
+and never the address. And when Settings opens, and once a quarter of an hour after the start,
+it records how many megabytes each awake account takes.
+
 ## 0.5.9 – the Start with Windows tick survives a restart
 
 **The tick beside Start with Windows in the tray menu came back empty after every restart, with

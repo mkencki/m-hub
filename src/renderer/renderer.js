@@ -179,6 +179,12 @@ async function refreshRail() {
 
     channel.append(chip, name, meta)
     channel.addEventListener('click', () => switchTo(account.id))
+    // The menu is the main process's to draw: a native one can stand over the account views,
+    // which sit above this page and would cover anything drawn here.
+    channel.addEventListener('contextmenu', (event) => {
+      event.preventDefault()
+      window.mHub.openChannelMenu(account.id)
+    })
     channels.append(channel)
   }
 
@@ -496,6 +502,7 @@ function showMessage(text, tone = 'error', offer = null, { id = null, autoHideMs
   pendingOffer = offer
   shownMessageId = id
   document.getElementById('reload-account').hidden = offer?.action !== 'reload'
+  document.getElementById('proceed-anyway').hidden = offer?.action !== 'proceed'
   document.getElementById('show-download').hidden = offer?.action !== 'show-download'
   bar.hidden = false
   if (autoHideMs) {
@@ -511,15 +518,27 @@ function hideMessage() {
   shownMessageId = null
   document.getElementById('message-text').textContent = ''
   document.getElementById('reload-account').hidden = true
+  document.getElementById('proceed-anyway').hidden = true
   document.getElementById('show-download').hidden = true
   pendingOffer = null
   document.getElementById('message').hidden = true
 }
 
+// The offer says which kind of reload it is for: a hung page is offered a restart of its
+// renderer, because an ordinary reload waits behind the script that hung.
 document.getElementById('reload-account').addEventListener('click', async () => {
   const accountId = pendingOffer?.accountId
+  const command = pendingOffer?.command
   hideMessage()
-  await window.mHub.reloadAccount(accountId)
+  await window.mHub.reloadAccount(accountId, command)
+})
+
+// A page with something unsent refused to be left. Going ahead throws that away – the button
+// says so – and repeats only what was refused a moment ago; main hands back nothing else.
+document.getElementById('proceed-anyway').addEventListener('click', async () => {
+  const accountId = pendingOffer?.accountId
+  hideMessage()
+  await window.mHub.proceedAnyway(accountId)
 })
 
 // The id of a download this process recorded, never a path – main looks up where the file

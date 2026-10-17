@@ -67,6 +67,10 @@ export function createView(account, defaultUA, onError = () => {}, View = WebCon
   return view
 }
 
+// How long after a restart its own crash report is waited for. The report is one task away, so
+// this is generous by orders of magnitude; what it must not be is open-ended.
+const EXPECTED_EXIT_MS = 5000
+
 export class ViewManager {
   // The clock is a parameter for the same reason createView takes its view class: the rule
   // the latch enforces is about elapsed time, and it has to be examinable without waiting.
@@ -83,6 +87,11 @@ export class ViewManager {
     // in accounts.js and kept here, because this is where the badge is worked out and a
     // view on its own knows nothing about which service it is.
     this.countsUnread = new Map()
+    // The account each view was made for. A reload that finds nothing to reload needs the
+    // account's own address to start again from, and the view does not know it.
+    this.accounts = new Map()
+    // Account id -> until when a crash report is expected, because a restart caused it.
+    this.expectedExits = new Map()
     this.activeId = null
     this.visible = true
     this.geometry = { x: 0, y: 0, width: 0, height: 0 }
@@ -91,12 +100,20 @@ export class ViewManager {
   add(account) {
     if (this.views.has(account.id)) return this.views.get(account.id)
     this.countsUnread.set(account.id, PLATFORMS[account.platform]?.unreadInTitle !== false)
+    this.accounts.set(account.id, account)
     const view = createView(account, this.defaultUA, this.onError)
     view.setVisible(this.visible)
     this.window.contentView.addChildView(view)
     view.setBounds({ ...this.geometry, height: 0 })
     this.views.set(account.id, view)
     return view
+  }
+
+  // An edit keeps the view and its sign-in – the id does not change – but the name and the
+  // rest are read from here by whatever names the account later: the channel menu, a download
+  // message. Only an account that already has a view is replaced; adding one is add()'s job.
+  update(account) {
+    if (this.views.has(account.id)) this.accounts.set(account.id, account)
   }
 
   remove(accountId) {
@@ -110,6 +127,8 @@ export class ViewManager {
     view.webContents.close()
     this.views.delete(accountId)
     this.countsUnread.delete(accountId)
+    this.accounts.delete(accountId)
+    this.expectedExits.delete(accountId)
     this.latch.forget(accountId)
     if (this.activeId === accountId) {
       this.activeId = null
@@ -132,11 +151,48 @@ export class ViewManager {
   // saying the computer is not connected – used to be restarting the application and taking
   // every other account down with it. Reloading throws away whatever is half-typed in the
   // composer, so this is never called on a timer; something has to ask for it.
-  reload(accountId) {
+  //
+  // Three ways, because a white rectangle has more than one cause:
+  //   'normal'   the page reloads. After a load that failed while the network was down, this
+  //              retries the address the error page stands in for, not the error page.
+  //   'hard'     the same past the HTTP cache and the service worker – for a page that keeps
+  //              coming back broken from what it saved.
+  //   'restart'  the renderer is ended and the page loaded into a new one. A hung renderer does
+  //              not answer a reload: the request waits behind the very script that hung.
+  //              Partitions never share a renderer, so no other account goes down with it.
+  reload(accountId, mode = 'normal') {
     const view = this.views.get(accountId)
     if (!view || view.webContents.isDestroyed()) return false
-    view.webContents.reload()
+    const contents = view.webContents
+
+    // Nothing ever committed – the first load is still on its way, or was abandoned. reload()
+    // on an empty history does nothing and says nothing, which on a blank view would make F5
+    // look dead exactly where it is pressed.
+    if (!contents.getURL() || contents.navigationHistory.length() === 0) {
+      const account = this.accounts.get(accountId)
+      if (!account) return false
+      contents.loadURL(account.url).catch(() => {})
+      return true
+    }
+
+    if (mode === 'restart' && !contents.isCrashed()) {
+      // The crash this causes is reported a task later, like any other. Expected for a few
+      // seconds and no longer, so a real crash later on is never mistaken for this one.
+      this.expectedExits.set(accountId, this.now() + EXPECTED_EXIT_MS)
+      contents.forcefullyCrashRenderer()
+    }
+
+    if (mode === 'hard') contents.reloadIgnoringCache()
+    else contents.reload()
     return true
+  }
+
+  // Whether a crash report for this account was caused by a restart. Answered once: the
+  // expectation is spent by the report it was for.
+  takeExpectedExit(accountId) {
+    const until = this.expectedExits.get(accountId)
+    this.expectedExits.delete(accountId)
+    return until !== undefined && this.now() <= until
   }
 
   setGeometry(rect) {

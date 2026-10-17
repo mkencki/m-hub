@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { classify } from '../src/main/navigation.js'
+import { classify, hostClass } from '../src/main/navigation.js'
 import { PLATFORMS } from '../src/main/accounts.js'
 
 // The shape a platform declares. The real ones live in accounts.js; these are here so the
@@ -127,5 +127,48 @@ describe('the hosts LinkedIn sign-in really visits', () => {
   // The allowlist is an allowlist. A host that merely looks Microsoft-ish is still a stranger.
   test('a lookalike host is still sent to the system browser', () => {
     expect(classify(PLATFORMS.linkedin, 'https://login.live.com.example.invalid/', { viaWindowOpen: true })).toBe('external')
+  })
+})
+
+// What a window a page asked for is, written to the log in place of its address. Whether
+// redirecting popups into the account view is worth building rests on how many of them are
+// sign-ins and how many are articles – and disposition cannot tell those two apart, which is
+// how this file came to exist. The class can, and it names no person and no page.
+describe('hostClass', () => {
+  test('a host of the service is the service', () => {
+    expect(hostClass(messenger, 'https://www.facebook.com/photo/?fbid=1')).toBe('service')
+  })
+
+  test('a sign-in host declared for the platform is a sign-in', () => {
+    expect(hostClass(withApple, 'https://appleid.apple.com/auth/authorize')).toBe('auth')
+  })
+
+  // The wrapper sits on the service's own host, so it is told apart before the host list is read.
+  test('a link wrapper is a wrapper, though it sits on the service host', () => {
+    expect(hostClass(messenger, 'https://l.facebook.com/l.php?u=https%3A%2F%2Fexample.org')).toBe('shim')
+    expect(hostClass(messenger, 'https://www.facebook.com/l.php?u=https%3A%2F%2Fexample.org')).toBe('shim')
+  })
+
+  test('anywhere else is external', () => {
+    expect(hostClass(messenger, 'https://example.org/article')).toBe('external')
+  })
+
+  test('what is not a web address at all is blocked', () => {
+    expect(hostClass(messenger, 'ms-settings:privacy')).toBe('block')
+    expect(hostClass(messenger, 'not a url')).toBe('block')
+  })
+
+  // classify is the decision and hostClass the description; they must never disagree.
+  test('the class decides the verdict', () => {
+    const verdicts = { service: 'child', auth: 'child', shim: 'external', external: 'external', block: 'block' }
+    for (const [platform, address] of [
+      [messenger, 'https://www.messenger.com/t/1'],
+      [withApple, 'https://appleid.apple.com/'],
+      [messenger, 'https://lm.facebook.com/l.php?u=x'],
+      [messenger, 'https://example.org/'],
+      [messenger, 'file:///C:/Windows/'],
+    ]) {
+      expect(classify(platform, address, { viaWindowOpen: true })).toBe(verdicts[hostClass(platform, address)])
+    }
   })
 })

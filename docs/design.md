@@ -61,9 +61,9 @@ consequences follow, and none of them is optional:
 
 1. **A navigation and child-window contract becomes a precondition, not a nicety.** A whole
    service is full of outbound links, and its sign-in legitimately crosses origins
-   mid-flow. Without a policy the application is a browser with no address bar, no back
-   button and notifications granted in advance – a worse place to click a stranger's link
-   than the real browser next to it. Each platform therefore declares the hosts it owns
+   mid-flow. Without a policy the application is a browser with no address bar and
+   notifications granted in advance – a worse place to click a stranger's link than the real
+   browser next to it. Each platform therefore declares the hosts it owns
    and the hosts it authenticates through. Anything else opens in the system browser.
    Naive rules break this in both directions: blocking every off-origin navigation breaks
    OAuth, and allowing any host that merely *contains* the service name admits
@@ -103,7 +103,8 @@ main window (BrowserWindow)
 │   └── WebContentsView  session persist:acc-facebook   → facebook.com
 └── child window, on demand             ← a sign-in the service opens for itself,
                                           in the SAME session, titled by its origin,
-                                          sandboxed, and gone when its opener is
+                                          sandboxed, and gone when its opener is;
+                                          its own Back, Forward and Reload
 ```
 
 Each view costs about 250 MB once its page has loaded – measured 2026-08-25 at 754 MB for
@@ -134,9 +135,9 @@ windows.
 ### 4.2 `views` – the view manager
 
 Creates a `WebContentsView` per account, attaches its session, sets the `User-Agent`,
-governs geometry as the window resizes, switches the active view, and reloads an account in
-one of three ways – ordinary, past the cache, or by restarting its renderer. Knows nothing about
-where the account list came from.
+governs geometry as the window resizes, switches the active view, reloads an account in one of
+three ways – ordinary, past the cache, or by restarting its renderer – and steps an account back,
+forward or to its start page. Knows nothing about where the account list came from.
 
 ### 4.3 `macros` – the macro store
 
@@ -291,7 +292,7 @@ Beyond these rules the application is an ordinary browser with tabs.
 |---|---|
 | `accounts.json` damaged | a backup copy alongside it, start with an empty list, message shown |
 | no network | the view shows the platform's own state; the app does not intervene – F5 or the channel menu brings the page back once the network does |
-| a page refuses to be left (an unsent draft) | said in the status bar by account; an offer to discard only when the refusal answers a reload just asked for |
+| a page refuses to be left (an unsent draft) | said in the status bar by account; an offer to discard only when the refusal answers a reload or a step just asked for |
 | WhatsApp refuses the client (`User-Agent`) | an explicit message suggesting an update |
 | attachment file missing from the store | the macro is marked incomplete, the text still works |
 | file over the limit | refused, with the size and the limit reported |
@@ -371,6 +372,14 @@ never on how a window was asked for – a sign-in popup and a link to an article
 apart by disposition or features. Host matching is a suffix comparison on a dot boundary, the
 external list is consulted first because link shims live on the service's own domain, and only
 `http:` and `https:` are ever handed to the system.
+
+*Amended for 0.6.1.* A step back or forward does not pass through `will-navigate`, and does not
+need to: the history holds only entries the view has already committed, each of which passed the
+rules on its way in. Steps go only where `canGoBack` and `canGoForward` allow – never
+`goToOffset`, which would walk into the entries Chromium marks as skippable because a page added
+them before anybody touched it. A window a page opened keeps its own history and its own Back,
+Forward and Reload, and it can hand a page of the service to the account view when the operator
+asks; a sign-in never, because it answers back to the window that opened it.
 
 **Stage 6 – macros 2.0. DONE 2026-08-25**, except 6.5, which needs the operator's consent
 because it would change the LETTER of rule 7.3, and 6.7, which waits for stage 7.
@@ -654,6 +663,31 @@ the decision cannot drift apart. Whether sleeping accounts pays rests on what an
 `account-memory.js` adds up the private memory of an account's renderer and of the processes
 its frames run in, from `app.getAppMetrics()`, and `account-memory` records it in megabytes when
 Settings opens and fifteen minutes after the start.
+
+**Stepping through an account (0.6.1).** `commandFor` turns Alt+← and Alt+→ into `back` and
+`forward`, and they reach `runAccountCommand` with the reloads, so the dialog rule and the guard
+come for free; the guard is armed only when a step actually started, or a press with nowhere to go
+would turn the page's next refusal of its own navigation into an offer to discard. The keyboard's
+Back key never arrives in `before-input-event` as a key at all – it comes as the window's
+`app-command` – while the mouse's side buttons are Chromium's own and take exactly one step,
+which a test holds. The status bar learns where an account stands from `nav:state`, sent on
+`did-frame-navigate`, `did-navigate-in-page` and `did-fail-load`: Electron reports a committed
+error page by the last alone, though it is an entry in the history like any other. Three things
+the tests had to learn on CI. `getActiveIndex()` answers with the PENDING entry while a navigation
+is on its way, so a test waits for the committed address before the next key. A page's own
+`pushState` counts for Back only after a real activation – a gesture injected through
+`executeJavaScript` leaves the entry skippable – so the test clicks through CDP. And `loadURL`
+over a page still loading can reject with the error of the load it interrupted.
+
+**Windows a page opens (0.6.1).** In such a window `commandFor` passes only the keys of a small
+browser – back, forward, reload, hard reload and the developer tools – and acts on that window, not
+on the account behind it. Its menu is built once and only its items are switched on and off, since
+a menu replaced while open would be pulled out from under the click. A handled Alt+← does not
+uncover the hidden menu bar: after a handled key down Chromium drops every key up until the next
+key down, the Alt's included, so the window never sees Alt let go – the end-to-end test holds both
+halves, Alt+← leaving the bar hidden and Alt alone showing it. Moving a page into the account view
+hides the window, loads the address in the view, and closes the window only once the load has
+committed; a refused load, or a window whose own page refuses to close, brings it back.
 
 ## 10. Tests
 

@@ -1,6 +1,7 @@
 import { WebContentsView } from 'electron'
 import { PLATFORMS } from './accounts.js'
 import { UnreadLatch } from './unread.js'
+import { historyState, step } from './history.js'
 
 // Electron assembles the default User-Agent out of the application's own name and version, so
 // whatever this application is called goes out to Meta's servers on every request unless it is
@@ -185,6 +186,42 @@ export class ViewManager {
     if (mode === 'hard') contents.reloadIgnoringCache()
     else contents.reload()
     return true
+  }
+
+  // A view that exists and has not been destroyed, or null.
+  liveView(accountId) {
+    const view = this.views.get(accountId)
+    return view && !view.webContents.isDestroyed() ? view : null
+  }
+
+  // Back and forward walk the account's own history, one step – see history.js for why never
+  // further than Chromium allows. The mouse's side buttons already did this on their own; these
+  // are the same step for the status bar, the keyboard and a touch screen.
+  goBack(accountId) {
+    const view = this.liveView(accountId)
+    return view ? step(view.webContents, 'back') : false
+  }
+
+  goForward(accountId) {
+    const view = this.liveView(accountId)
+    return view ? step(view.webContents, 'forward') : false
+  }
+
+  // The account's start page as a NEW step, not the first entry of the history: that one is as
+  // often as not a sign-in or a checkpoint page, and a load on top of the history means Back
+  // afterwards returns to wherever the operator was.
+  goHome(accountId) {
+    const view = this.liveView(accountId)
+    const account = this.accounts.get(accountId)
+    if (!view || !account) return false
+    view.webContents.loadURL(account.url).catch(() => {})
+    return true
+  }
+
+  // Which ways the account can go, for the buttons on the status bar.
+  navState(accountId) {
+    const view = this.liveView(accountId)
+    return view ? historyState(view.webContents) : { canGoBack: false, canGoForward: false }
   }
 
   // Whether a crash report for this account was caused by a restart. Answered once: the

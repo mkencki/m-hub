@@ -202,6 +202,90 @@ describe('reloading an account', () => {
   })
 })
 
+describe('stepping through an account history', () => {
+  // A webContents with a history of its own: where it stands and how far it reaches either way.
+  // It writes down what it was asked to do, so a test can tell a step from a load.
+  const viewWithHistory = ({ back = false, forward = false, destroyed = false } = {}) => {
+    const calls = []
+    return {
+      calls,
+      webContents: {
+        isDestroyed: () => destroyed,
+        navigationHistory: {
+          canGoBack: () => back,
+          canGoForward: () => forward,
+          goBack: () => calls.push('goBack'),
+          goForward: () => calls.push('goForward'),
+          goToOffset: (offset) => calls.push(`goToOffset ${offset}`),
+        },
+        loadURL: (address) => {
+          calls.push(`loadURL ${address}`)
+          return Promise.resolve()
+        },
+      },
+    }
+  }
+
+  const account = { id: 'acc-f', platform: 'facebook', url: 'https://www.facebook.com/' }
+
+  const managerHolding = (view) => {
+    const manager = new ViewManager({ contentView: { addChildView() {} } }, 'UA')
+    manager.views.set(account.id, view)
+    manager.accounts.set(account.id, account)
+    return manager
+  }
+
+  test('back and forward take one step each', () => {
+    const view = viewWithHistory({ back: true, forward: true })
+    const manager = managerHolding(view)
+    expect(manager.goBack(account.id)).toBe(true)
+    expect(manager.goForward(account.id)).toBe(true)
+    expect(view.calls).toEqual(['goBack', 'goForward'])
+  })
+
+  // Chromium answers "no" for entries a page added before anybody touched it – the way a page
+  // builds a trap that Back cannot leave. goToOffset(-1) would walk into them anyway, so nothing
+  // here reaches past the answer: no step is taken, and the caller is told so.
+  test('a step with nowhere to go is not taken, and not forced', () => {
+    const view = viewWithHistory()
+    const manager = managerHolding(view)
+    expect(manager.goBack(account.id)).toBe(false)
+    expect(manager.goForward(account.id)).toBe(false)
+    expect(view.calls).toEqual([])
+  })
+
+  // Not the first entry of the history: that is as often as not a sign-in or a checkpoint page.
+  // A load of the account's own address puts the start page on top, so Back afterwards returns to
+  // wherever the operator was.
+  test('home loads the account address as a new step', () => {
+    const view = viewWithHistory({ back: true })
+    expect(managerHolding(view).goHome(account.id)).toBe(true)
+    expect(view.calls).toEqual(['loadURL https://www.facebook.com/'])
+  })
+
+  test('says which ways an account can go', () => {
+    expect(managerHolding(viewWithHistory({ back: true })).navState(account.id)).toEqual({
+      canGoBack: true,
+      canGoForward: false,
+    })
+    expect(managerHolding(viewWithHistory({ forward: true })).navState(account.id)).toEqual({
+      canGoBack: false,
+      canGoForward: true,
+    })
+  })
+
+  test('an account without a view, or with a destroyed one, goes nowhere', () => {
+    const manager = managerHolding(viewWithHistory({ back: true, forward: true, destroyed: true }))
+    expect(manager.goBack(account.id)).toBe(false)
+    expect(manager.goForward(account.id)).toBe(false)
+    expect(manager.goHome(account.id)).toBe(false)
+    expect(manager.goBack('acc-missing')).toBe(false)
+    expect(manager.goHome('acc-missing')).toBe(false)
+    expect(manager.navState(account.id)).toEqual({ canGoBack: false, canGoForward: false })
+    expect(manager.navState('acc-missing')).toEqual({ canGoBack: false, canGoForward: false })
+  })
+})
+
 describe('the accounts the manager knows', () => {
   const account = { id: 'acc-w', name: 'WhatsApp', platform: 'whatsapp', url: 'https://web.whatsapp.com/' }
 

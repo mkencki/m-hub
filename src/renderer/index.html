@@ -43,6 +43,25 @@
 </main>
 
 <footer id="status-bar">
+  <!-- Back, Forward and Start for the account in front. Here and not on the rail: the status bar is
+       never covered by an account view, and the account's own name stands right beside them. -->
+  <span class="status-nav">
+    <button type="button" id="nav-back" data-i18n-title="navBackWithShortcut" data-i18n-aria="navBack" disabled>
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <path d="M10 3.5 5.5 8l4.5 4.5" />
+      </svg>
+    </button>
+    <button type="button" id="nav-forward" data-i18n-title="navForwardWithShortcut" data-i18n-aria="navForward" disabled>
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <path d="M6 3.5 10.5 8 6 12.5" />
+      </svg>
+    </button>
+    <button type="button" id="nav-home" data-i18n-title="navHomeHint" data-i18n-aria="navHome" disabled>
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <path d="M2.8 7.6 8 3.2l5.2 4.4M4.4 6.3v6.5h7.2V6.3" />
+      </svg>
+    </button>
+  </span>
   <span class="status-channel"><i id="status-chip" class="chip"></i><span id="status-name"></span></span>
   <div id="message" class="errors" data-tone="error" hidden>
     <span id="message-text"></span>

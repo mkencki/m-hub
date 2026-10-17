@@ -65,8 +65,36 @@ function paintChannel(account) {
     : tr('allRead')
 }
 
+// Where the account in front can go, as the main process last said. It names the account it is
+// about, and a word about an account the operator has just left greys the buttons instead of
+// pointing them at the wrong history.
+let navState = { accountId: null, canGoBack: false, canGoForward: false }
+
+function paintNav() {
+  const current = navState.accountId === activeAccountId
+  document.getElementById('nav-back').disabled = !(current && navState.canGoBack)
+  document.getElementById('nav-forward').disabled = !(current && navState.canGoForward)
+  document.getElementById('nav-home').disabled = !activeAccountId
+}
+
+window.mHub.onNavState((state) => {
+  navState = state
+  paintNav()
+})
+
+for (const [id, direction] of [
+  ['nav-back', 'back'],
+  ['nav-forward', 'forward'],
+  ['nav-home', 'home'],
+]) {
+  document.getElementById(id).addEventListener('click', () => {
+    if (activeAccountId) window.mHub.navigate(activeAccountId, direction)
+  })
+}
+
 async function switchTo(accountId) {
   activeAccountId = accountId
+  paintNav()
   await window.mHub.switchAccount(accountId)
   for (const channel of channels.children) {
     channel.setAttribute('aria-selected', String(channel.dataset.accountId === accountId))
@@ -189,7 +217,12 @@ async function refreshRail() {
   }
 
   if (selected) await switchTo(selected)
-  else paintChannel(null)
+  else {
+    // The last account is gone, and with it anything Back or Start could act on.
+    activeAccountId = null
+    paintNav()
+    paintChannel(null)
+  }
 }
 
 let editedAccountId = null

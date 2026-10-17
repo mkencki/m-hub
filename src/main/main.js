@@ -10,6 +10,8 @@ import { accountMemoryMb, processIdsOf } from './account-memory.js'
 import { commandFor } from './key-commands.js'
 import { UnloadGuard } from './unload-guard.js'
 import { channelMenuTemplate } from './channel-menu.js'
+import { childWindowMenuTemplate, runInWindow } from './child-windows.js'
+import { historyState } from './history.js'
 import { registerAccountChannels, registerMacroChannels } from './bridge.js'
 import { createClipboardSession } from './file-clipboard.js'
 import { createLogger } from './log.js'
@@ -41,6 +43,9 @@ const MACRO_SHORTCUT = 'Control+Shift+Space'
 const DOWNLOAD_MESSAGE_MS = 8000
 // When the memory of each account is first written to the log – see logAccountMemory.
 const ACCOUNT_MEMORY_AFTER_MS = 15 * 60 * 1000
+// The keyboard's own Back and Forward keys, as Windows reports them to a window. This is the one
+// place they are answered – see key-commands.js for why not in before-input-event as well.
+const APP_COMMANDS = { 'browser-backward': 'back', 'browser-forward': 'forward' }
 
 // app.getName() rather than a literal: this is the ONE place that knows what the application
 // is called, and Electron puts that name straight into the default User-Agent.
@@ -229,18 +234,48 @@ async function createWindow() {
     return started
   }
 
+  // What each command does to an account. Every one of them leaves the page, so a page with a
+  // draft can refuse any of them, and the guard has to know which one it was.
+  const ACCOUNT_COMMANDS = {
+    reload: (accountId) => reloadView(accountId, 'normal'),
+    'hard-reload': (accountId) => reloadView(accountId, 'hard'),
+    restart: (accountId) => reloadView(accountId, 'restart'),
+    back: (accountId) => manager.goBack(accountId),
+    forward: (accountId) => manager.goForward(accountId),
+    home: (accountId) => manager.goHome(accountId),
+  }
+
   // Every request to act on an account comes through here – a key, the status bar, the
   // channel menu – so the rules below cannot differ between the ways in.
-  const RELOAD_MODES = { reload: 'normal', 'hard-reload': 'hard', restart: 'restart' }
   const runAccountCommand = (command, accountId, { fromKeyboard = false } = {}) => {
-    if (!accountId || !Object.hasOwn(RELOAD_MODES, command)) return false
+    if (!accountId || !Object.hasOwn(ACCOUNT_COMMANDS, command)) return false
     // While a dialog is open the account views step aside, out of sight. A key pressed then is
     // meant for the dialog, and a reload behind it would throw a draft away where nobody can
     // see it go.
     if (fromKeyboard && !manager.visible) return false
-    guard.arm(accountId, command)
-    return reloadView(accountId, RELOAD_MODES[command])
+    // Armed only for something that actually started. A step back with nowhere to go starts
+    // nothing, and armed anyway it would claim the next refusal of the page's own navigation –
+    // offering to repeat a Back nobody needed. A refusal is the page's answer, a task later at the
+    // earliest, so arming after the start is never too late.
+    const started = ACCOUNT_COMMANDS[command](accountId)
+    if (started) guard.arm(accountId, command)
+    return started
   }
+
+  // Where the account being looked at can go, for the buttons on the status bar. Sent rather than
+  // asked for, because it changes with every step the page takes, most of them without a load. The
+  // account goes with it, so a word about an account the operator has just left is not taken for
+  // one about the account now in front.
+  const sendNavState = (accountId) => {
+    if (!accountId || window.isDestroyed() || window.webContents.isDestroyed()) return
+    window.webContents.send('nav:state', { accountId, ...manager.navState(accountId) })
+  }
+
+  // The keyboard's Back key arrives here whichever webContents holds the focus. A key, so it is
+  // held back while a dialog is open, as F5 is.
+  window.on('app-command', (_event, name) => {
+    if (Object.hasOwn(APP_COMMANDS, name)) runAccountCommand(APP_COMMANDS[name], manager.activeId, { fromKeyboard: true })
+  })
 
   let closeToTray = Boolean(layout.closeToTray)
   let downloadDir = String(layout.downloadDir ?? '')
@@ -333,7 +368,20 @@ async function createWindow() {
   ipcMain.handle('accounts:proceed', (_event, accountId) => {
     const action = guard.proceed(accountId)
     if (!action) return false
-    return reloadView(accountId, RELOAD_MODES[action])
+    return ACCOUNT_COMMANDS[action](accountId)
+  })
+
+  // Back, Forward and Start on the status bar. Only those three: this is not a way to reach a
+  // restart, which has its own menu item and its own warning.
+  const NAVIGATIONS = new Set(['back', 'forward', 'home'])
+  ipcMain.handle('accounts:navigate', (_event, accountId, direction) => {
+    if (!NAVIGATIONS.has(direction)) return false
+    const target = accountId ?? manager.activeId
+    const done = runAccountCommand(direction, target)
+    // The click took the keyboard into the status bar. Given back, typing and the next Alt+Left go
+    // to the page, as they did before the click.
+    if (target === manager.activeId) manager.active()?.webContents.focus()
+    return done
   })
 
   // A right click on a channel – see channel-menu.js for what it offers and why. Opened where
@@ -346,7 +394,7 @@ async function createWindow() {
     const template = channelMenuTemplate({ account, hasChildWindows: Boolean(childWindows.get(accountId)?.size), tr })
     const menu = Menu.buildFromTemplate(
       template.map((item) =>
-        Object.hasOwn(RELOAD_MODES, item.id) ? { ...item, click: () => runAccountCommand(item.id, accountId) } : item,
+        Object.hasOwn(ACCOUNT_COMMANDS, item.id) ? { ...item, click: () => runAccountCommand(item.id, accountId) } : item,
       ),
     )
     channelMenuOpen = true
@@ -512,6 +560,76 @@ async function createWindow() {
   // Account id -> the windows its page has open. Restarting the page can take them down with it,
   // and the channel menu says so before the click rather than after.
   const childWindows = new Map()
+
+  // A page of the service, open in a window, moved into the account view – see child-windows.js.
+  // Asked again here rather than trusted from the menu: the window may have moved on since the
+  // menu was built. The window steps out of sight at once and closes once the view has the page;
+  // if the account page refuses to be left – a draft, which the status bar then reports – or the
+  // load fails, the window comes back, so the page is never lost to a move that did not happen.
+  // So does a window whose own page refuses to close – a comment typed in it – because a close is
+  // refused as silently as a load, and a hidden window with a draft would be out of reach for good.
+  const openInAccountView = (accountId, child, address) => {
+    const account = manager.accounts.get(accountId)
+    const view = manager.liveView(accountId)
+    if (!account || !view || hostClass(PLATFORMS[account.platform], address) !== 'service') return false
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('accounts:select-id', accountId)
+    const bringBack = () => {
+      if (!child.isDestroyed()) child.show()
+    }
+    child.hide()
+    view.webContents.loadURL(address).then(() => {
+      if (child.isDestroyed()) return
+      child.webContents.once('will-prevent-unload', bringBack)
+      child.close()
+    }, bringBack)
+    return true
+  }
+
+  // What a window a page opened is given: the keys of a small browser and a menu that names them.
+  // Its menu bar stays hidden until Alt, as Windows applications keep theirs.
+  const equipChildWindow = (child, account, requested) => {
+    const contents = child.webContents
+    const platform = PLATFORMS[account.platform]
+    // The address the window was opened for, until it has committed one of its own.
+    const address = () => contents.getURL() || requested
+
+    const act = (id) => (id === 'open-in-view' ? openInAccountView(account.id, child, address()) : runInWindow(contents, id))
+    const template = () => childWindowMenuTemplate({ platform, url: address(), ...historyState(contents), tr })
+
+    const menu = Menu.buildFromTemplate(
+      template().map((group) => ({
+        ...group,
+        submenu: group.submenu.map((item) => (item.id ? { ...item, click: () => act(item.id) } : item)),
+      })),
+    )
+    child.setMenu(menu)
+
+    // What the window can do changes with every step it takes. The menu is built once and only its
+    // items are switched on and off: a menu replaced while the operator has it open would be pulled
+    // out from under the click.
+    const refreshMenu = () => {
+      if (child.isDestroyed() || contents.isDestroyed()) return
+      for (const group of template()) {
+        for (const item of group.submenu) {
+          if (item.id) menu.getMenuItemById(item.id).enabled = item.enabled ?? true
+        }
+      }
+    }
+
+    contents.on('before-input-event', (event, input) => {
+      const command = commandFor(input, { inChildWindow: true })
+      if (!command) return
+      event.preventDefault()
+      runInWindow(contents, command)
+    })
+    child.on('app-command', (_event, name) => {
+      if (Object.hasOwn(APP_COMMANDS, name)) runInWindow(contents, APP_COMMANDS[name])
+    })
+    contents.on('did-frame-navigate', refreshMenu)
+    contents.on('did-navigate-in-page', refreshMenu)
+    contents.on('did-fail-load', refreshMenu)
+  }
+
   const gateNavigation = (view, account) => {
     const platform = PLATFORMS[account.platform]
 
@@ -570,6 +688,9 @@ async function createWindow() {
       const open = childWindows.get(account.id)
       open.add(child)
       child.once('closed', () => open.delete(child))
+
+      // Looked up rather than captured, so a window opened after an edit knows the account as it is.
+      equipChildWindow(child, manager.accounts.get(account.id) ?? account, details.url)
     })
 
     // Only will-navigate, deliberately. A redirect is the continuation of a navigation that
@@ -646,6 +767,18 @@ async function createWindow() {
     view.webContents.on('page-title-updated', refreshBadge)
     attachShortcuts(view.webContents)
     gateNavigation(view, account)
+
+    // Every step the page takes can change where Back and Forward lead: a load, a step inside the
+    // page – which is how Facebook moves between a profile, a post and a photo – and a step inside
+    // one of its frames. And a load that failed: its error page is a step in the history too, and
+    // Electron reports it only as a failure, never as a navigation – offline, Start would leave
+    // Back greyed over a page it can go back from. Only the account being looked at has buttons.
+    const navigated = () => {
+      if (manager.activeId === account.id) sendNavState(account.id)
+    }
+    view.webContents.on('did-frame-navigate', navigated)
+    view.webContents.on('did-navigate-in-page', navigated)
+    view.webContents.on('did-fail-load', navigated)
 
     // Clicking a Windows toast hands focus to the view the toast came from, and nothing
     // else moved with it: the rail went on showing the account the operator had walked
@@ -747,7 +880,7 @@ async function createWindow() {
   fitViews()
   if (accounts.length) manager.show(accounts[0].id)
 
-  registerAccountChannels({ dataDir, manager, onAccountsChanged: fitViews, prepareView })
+  registerAccountChannels({ dataDir, manager, onAccountsChanged: fitViews, prepareView, onAccountShown: sendNavState })
   clipboardSession = createClipboardSession()
   clipboardSession.warmUp()
   registerMacroChannels({ dataDir, manager, clipboardSession })

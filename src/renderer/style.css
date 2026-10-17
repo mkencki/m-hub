@@ -223,6 +223,12 @@ body {
   min-width: 0;
 }
 
+/* Back, Forward and Start. Greyed rather than hidden when there is nowhere to go, so they never
+   move about under the pointer. */
+.status-nav { display: flex; align-items: center; gap: 2px; flex: none; margin-left: -6px; }
+.status-nav svg { display: block; width: 14px; height: 14px; }
+#status-bar .status-nav button:disabled { color: var(--muted); }
+
 .status-channel { display: flex; align-items: center; gap: 7px; color: var(--text); flex: none; }
 .status-channel .chip { width: 7px; height: 7px; border-radius: 50%; }
 

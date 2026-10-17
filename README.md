@@ -79,10 +79,11 @@ installed build needs none of this: its installer writes the same shortcut.
 | **Placeholders** | write `{name}` in a macro and it asks you before it inserts; `{date}` fills itself |
 | **Attachments** | PDF and mp4 **copied into the app's own storage** – you no longer need the original file; 100 MB limit |
 | **Language** | English and Polish, switched in Settings without restarting; the choice survives a restart |
-| **Keyboard** | `Ctrl+1`..`Ctrl+9` jump to a channel, `Ctrl+;` opens macros, `Ctrl+Shift+Space` does it from any program, `F5` or `Ctrl+R` reloads the account you are looking at, `Ctrl+F5` reloads it past the cache |
+| **Keyboard** | `Ctrl+1`..`Ctrl+9` jump to a channel, `Ctrl+;` opens macros, `Ctrl+Shift+Space` does it from any program, `F5` or `Ctrl+R` reloads the account you are looking at, `Ctrl+F5` reloads it past the cache, `Alt+←` and `Alt+→` go back and forward in it |
 | **Tray** | closing the window keeps the app running and noticing; switch it off in Settings. Autostart really does start hidden |
 | **Recovery** | a crashed, hung or stale account offers a reload in the status bar – nothing reloads by itself, because that would throw away a half-typed message; a page holding unsaved changes says so instead of silently ignoring the reload, and offers to discard them; a right click on a channel reloads, hard-reloads or restarts that account while you go on looking at another |
 | **Links** | a link out of a conversation opens in your own browser, not in a window without an address bar carrying your signed-in session |
+| **Back and forward** | ← → and ⌂ at the left of the status bar go back, forward and to the account's start page, greyed when there is nowhere to go; the mouse's side buttons and the keyboard's Back key do the same. A window a page opens – a sign-in, a post opened with a middle click – has its own: `Alt+←`, `Alt+→`, `F5`, and a menu under `Alt` that can move a page of the service into the account view |
 | **Downloads** | a file from a conversation says when it has landed and offers the folder it landed in; Settings holds the folder and whether you are asked each time |
 | **About** | a nameplate at the foot of Settings: version, build date and commit, Electron and Chromium, the profile folder with its size on disk and a button that opens it, licence and source |
 

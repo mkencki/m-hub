@@ -112,6 +112,17 @@ const load = (contentsId, pathname) =>
     address: server.url(pathname),
   })
 
+// The first local page over the live one the window was opened for. Committed is not finished: the
+// live page may still be fetching what it asked for, and a load started over it stops that – which
+// Electron then reports as the NEW load failing, "(-3) loading 'https://www.facebook.com/login'"
+// (measured on CI, run 39069581881). The answer that counts is where the window ends up.
+async function loadOverLivePage(contentsId, pathname) {
+  await load(contentsId, pathname).catch(() => {})
+  await expect
+    .poll(() => electronApp.evaluate(({ webContents }, id) => webContents.fromId(id).getURL(), contentsId))
+    .toBe(server.url(pathname))
+}
+
 const activeIndex = (contentsId) =>
   electronApp.evaluate(({ webContents }, id) => webContents.fromId(id).navigationHistory.getActiveIndex(), contentsId)
 
@@ -139,7 +150,7 @@ const windowCount = () => electronApp.evaluate(({ BrowserWindow }) => BrowserWin
 // A window on a local history of two pages, standing on the second.
 async function windowWithHistory() {
   const child = await openWindowFrom(viewIds.two, 'https://www.facebook.com/login')
-  await load(child.contentsId, '/one')
+  await loadOverLivePage(child.contentsId, '/one')
   await load(child.contentsId, '/two')
   await expect.poll(() => activeIndex(child.contentsId)).toBeGreaterThan(0)
   return child
@@ -209,7 +220,7 @@ test('the menu offers the account view for a page of the service, and only for o
   await expect.poll(() => menuItem(child.windowId, 'open-in-view')).toMatchObject({ enabled: true })
 
   // A page somewhere else is the system browser's business, not the account's.
-  await load(child.contentsId, '/one')
+  await loadOverLivePage(child.contentsId, '/one')
   await expect.poll(() => menuItem(child.windowId, 'open-in-view')).toMatchObject({ enabled: false })
 })
 

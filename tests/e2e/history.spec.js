@@ -11,6 +11,9 @@ import { appWindowId, blankTheViews, clearStatusBar, pressKey, servePages, webCo
 // account. They are loaded from the main process, never by following a link – see servePages.
 
 const PAGE = (title) => `<!doctype html><title>${title}</title><p>${title}</p>`
+// A page that adds a step of its own when it is clicked, as Facebook does when a post is opened.
+const TAP = `<!doctype html><title>tap</title><p>tap</p>
+<script>document.addEventListener('click', () => history.pushState(null, '', '#post'))</script>`
 
 let dataDir
 let electronApp
@@ -21,7 +24,7 @@ let windowContentsId
 const viewIds = {}
 
 test.beforeEach(async () => {
-  server = await servePages({ '/one': PAGE('one'), '/two': PAGE('two'), '/three': PAGE('three') })
+  server = await servePages({ '/one': PAGE('one'), '/two': PAGE('two'), '/three': PAGE('three'), '/tap': TAP })
   dataDir = await mkdtemp(path.join(tmpdir(), 'mhub-history-'))
   await writeFile(
     path.join(dataDir, 'accounts.json'),
@@ -49,9 +52,19 @@ test.beforeEach(async () => {
   }
 
   // Off the service pages – blanked the careful way, see blankTheViews – and onto a history that
-  // starts here, so what the buttons say depends on what each test does and nothing before it.
+  // starts here, so what the buttons say depends on what each test does and nothing before it. The
+  // other account needs only a history with nothing behind it; a load there would add nothing but a
+  // navigation in the background.
   await blankTheViews(electronApp)
-  for (const id of Object.values(viewIds)) await startFresh(id)
+  await startFresh(viewIds.one)
+  await electronApp.evaluate(({ webContents }, id) => webContents.fromId(id).navigationHistory.clear(), viewIds.two)
+
+  // A view loading in the background can take the system's focus, which the application reads as a
+  // clicked notification and follows with the rail. The account under test is therefore chosen here,
+  // as the operator would choose it, and checked – without moving the pointer onto the rail, which
+  // would unfold it.
+  await page.locator('.channel[data-account-id="acc-one"]').dispatchEvent('click')
+  await expect(page.locator('.channel[data-account-id="acc-one"]')).toHaveAttribute('aria-selected', 'true')
   await clearStatusBar(page)
 })
 
@@ -67,11 +80,11 @@ test.afterEach(async () => {
   await Promise.race([cleanup, new Promise((done) => setTimeout(done, 3000))])
 })
 
-const inView = (id, script, userGesture = false) =>
-  electronApp.evaluate(
-    ({ webContents }, { id, script, userGesture }) => webContents.fromId(id).executeJavaScript(script, userGesture),
-    { id, script, userGesture },
-  )
+const inView = (id, script) =>
+  electronApp.evaluate(({ webContents }, { id, script }) => webContents.fromId(id).executeJavaScript(script), {
+    id,
+    script,
+  })
 
 const load = (id, pathname) =>
   electronApp.evaluate(({ webContents }, { id, address }) => webContents.fromId(id).loadURL(address), {
@@ -79,11 +92,11 @@ const load = (id, pathname) =>
     address: server.url(pathname),
   })
 
-// A view on /one with nothing behind it. Clearing the history says nothing to anybody, so the page
-// then replaces its own entry – a step within the page, which the application hears like any
+// A view on one page with nothing behind it. Clearing the history says nothing to anybody, so the
+// page then replaces its own entry – a step within the page, which the application hears like any
 // other and answers by telling the status bar where the account stands.
-async function startFresh(id) {
-  await load(id, '/one')
+async function startFresh(id, pathname = '/one') {
+  await load(id, pathname)
   await electronApp.evaluate(({ webContents }, id) => webContents.fromId(id).navigationHistory.clear(), id)
   await inView(id, 'history.replaceState(null, "", location.href), 1')
 }
@@ -102,6 +115,23 @@ const viewShown = (id) =>
     }
     return null
   }, id)
+
+// A press and a release of one mouse button inside an account view, through the DevTools protocol:
+// the path the mouse takes into the page, user activation included, without moving the pointer of
+// whoever runs the test.
+const BUTTON_BITS = { left: 1, back: 8 }
+const mouseInView = (id, button) =>
+  electronApp.evaluate(
+    async ({ webContents }, { id, button, bits }) => {
+      const contents = webContents.fromId(id)
+      contents.debugger.attach('1.3')
+      const at = { x: 40, y: 40, clickCount: 1, button }
+      await contents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', buttons: bits, ...at })
+      await contents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', buttons: 0, ...at })
+      contents.debugger.detach()
+    },
+    { id, button, bits: BUTTON_BITS[button] },
+  )
 
 // What three steps forward look like: /one, /two, /three, standing on /three.
 async function walkThree(id) {
@@ -183,10 +213,14 @@ test('a load that ends on an error page turns Back on', async () => {
 // Facebook moves between a profile, a post and a photo without loading a page: each is a step the
 // page adds to its own history. Added after a click they are steps like any other, and the buttons
 // have to hear about them although no page loaded.
+//
+// The click is a real one, sent the way the mouse sends it. A script run "as a user gesture" does
+// not count: Chromium marked the step it added as one Back skips – measured on CI, run 39069581881.
 test('a step the page adds after a click turns Back on', async () => {
+  await startFresh(viewIds.one, '/tap')
   await expect.poll(() => enabled('#nav-back')).toBe(false)
 
-  await inView(viewIds.one, 'history.pushState(null, "", "#post"), 1', true)
+  await mouseInView(viewIds.one, 'left')
   await expect.poll(() => enabled('#nav-back')).toBe(true)
 
   await page.locator('#nav-back').click()
@@ -236,14 +270,7 @@ test('the Browser Back and Browser Forward keys step once each', async () => {
 test('the mouse back button takes exactly one step', async () => {
   await walkThree(viewIds.one)
 
-  await electronApp.evaluate(async ({ webContents }, id) => {
-    const contents = webContents.fromId(id)
-    contents.debugger.attach('1.3')
-    const at = { x: 40, y: 40, clickCount: 1 }
-    await contents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mousePressed', button: 'back', buttons: 8, ...at })
-    await contents.debugger.sendCommand('Input.dispatchMouseEvent', { type: 'mouseReleased', button: 'back', buttons: 0, ...at })
-    contents.debugger.detach()
-  }, viewIds.one)
+  await mouseInView(viewIds.one, 'back')
 
   await expect.poll(() => activeIndex(viewIds.one)).toBe(1)
   // Nothing to wait for when nothing more happens; long enough for a second step to have landed.

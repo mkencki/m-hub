@@ -1,0 +1,62 @@
+name: e2e
+
+# The test half of build.yml, for a working branch before it is merged.
+#
+# Why a workflow of its own rather than build.yml on more branches: build.yml also builds the
+# NSIS installer and uploads it as an artifact on every run. This repository is public, so on a
+# branch nobody has reviewed yet that would put an unsigned installer up for download. Nothing
+# here builds, packages or uploads anything – a run leaves its log and nothing else.
+#
+# Why the end-to-end suite runs HERE and not on the development laptop: every spec launches the
+# real application with a visible window, the window takes the foreground, rail.spec.js moves it
+# under the pointer and opens a second window to steal focus, and every launch puts an icon in
+# the tray and takes the global macro shortcut. On a machine somebody is working on, that is a
+# suite which fights its user. And it cannot simply be hidden: sendInputEvent, which the keyboard
+# specs depend on, only works in a focused window (electron.d.ts, sendInputEvent). A runner has
+# nobody to fight, so the suite runs as it is.
+#
+# package.spec.js skips itself without dist/win-unpacked, which this workflow never builds, so
+# the end-to-end step reports it as skipped. The packaged application is build.yml's business.
+on:
+  push:
+    branches: ['sess/**']
+  # Only offered once this file is on the default branch – GitHub lists manual triggers from
+  # there and nowhere else.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A newer push to the same branch makes the older run's result worthless, so it is cancelled
+# instead of left to finish and report on a commit that is no longer the branch.
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    # build.yml, installer included, has taken five to eight minutes a run (September 2026).
+    # A run that hangs – the worker teardown that waits without a limit is the known way to
+    # hang – is stopped long before GitHub's six-hour default would.
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      # The same lifecycle log as build.yml, for the same reason: a process that does not exit
+      # has to say which spec started it.
+      - name: End-to-end tests
+        run: npm run test:e2e
+        env:
+          DEBUG: pw:browser

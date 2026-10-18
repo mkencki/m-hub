@@ -135,6 +135,9 @@ test('three sleeps and wakes leave one download listener and a gated view', asyn
     await expect.poll(() => webContentsIdFor(electronApp, 'acc-two')).not.toBeNull()
     // Woken in the background: the operator is still on the account they were using.
     await expect(channel('acc-one')).toHaveAttribute('aria-selected', 'true')
+    // The woken view loads the real service. Off it again before the next sleep, so the close meets
+    // a page of this test's choosing and not whatever the service's page does on a runner.
+    await blankTheViews(electronApp)
   }
 
   const listeners = await electronApp.evaluate(({ session, webContents }, id) => {

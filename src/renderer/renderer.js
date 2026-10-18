@@ -118,6 +118,9 @@ async function switchTo(accountId) {
   activeAccountId = accountId
   paintNav()
   await window.mHub.switchAccount(accountId)
+  // A sleeping account is woken before it is shown, and another may have been chosen meanwhile.
+  // The main process shows only the latest choice, so the rail follows the latest choice too.
+  if (activeAccountId !== accountId) return
   for (const channel of channels.children) {
     channel.setAttribute('aria-selected', String(channel.dataset.accountId === accountId))
   }

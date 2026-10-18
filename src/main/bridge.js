@@ -104,16 +104,26 @@ export function registerAccountChannels({
     manager.setVisibility(visible)
   })
 
-  // The status bar's Back and Forward belong to the account in front, so they are told where the
-  // new one can go the moment it is shown.
-  //
-  // A sleeping account is woken first. One place for a click on its channel and for Ctrl+1..9,
-  // which both come here through the renderer – choosing an account is asking for its page.
-  ipcMain.handle('accounts:switch', async (_event, accountId) => {
+  const switchTo = switchAccountHandler({ manager, wakeAccount, onAccountShown })
+  ipcMain.handle('accounts:switch', (_event, accountId) => switchTo(accountId))
+}
+
+// The status bar's Back and Forward belong to the account in front, so they are told where the
+// new one can go the moment it is shown.
+//
+// A sleeping account is woken first. One place for a click on its channel and for Ctrl+1..9,
+// which both come here through the renderer – choosing an account is asking for its page.
+// Waking takes a moment, and a choice made meanwhile is the later word: the switch it overtook
+// shows nothing when its account is finally awake.
+export function switchAccountHandler({ manager, wakeAccount, onAccountShown }) {
+  let latest = 0
+  return async (accountId) => {
+    const turn = ++latest
     if (manager.isAsleep(accountId) || manager.isFallingAsleep(accountId)) await wakeAccount(accountId)
+    if (turn !== latest) return
     manager.show(accountId)
     onAccountShown(accountId)
-  })
+  }
 }
 
 

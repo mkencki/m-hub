@@ -28,6 +28,19 @@ describe('a refusal right after the application asked for something', () => {
     expect(guard.allowed('acc-a')).toBe(true)
     expect(guard.allowed('acc-a')).toBe(false)
   })
+
+  // The repeat can find nothing to do – a sleep refused because the account has meanwhile come to
+  // the front. Left standing, the permission would wave the page's next refusal through unasked.
+  test('a repeat that did not start takes its permission back', () => {
+    const guard = new UnloadGuard()
+    guard.arm('acc-a', 'sleep')
+    guard.blocked('acc-a')
+    guard.proceed('acc-a')
+
+    guard.revoke('acc-a')
+
+    expect(guard.allowed('acc-a')).toBe(false)
+  })
 })
 
 describe('a refusal nobody here asked for', () => {

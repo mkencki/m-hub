@@ -51,6 +51,12 @@ export class UnloadGuard {
     return action
   }
 
+  // The repeat found nothing to do – a sleep refused because the account has meanwhile come to
+  // the front – so no refusal will come to spend the permission. It goes now instead.
+  revoke(accountId) {
+    this.allowances.delete(accountId)
+  }
+
   // Asked by the refusal itself: may the page be overridden this time? Spent by the asking.
   allowed(accountId) {
     const until = this.allowances.get(accountId)

@@ -503,7 +503,11 @@ async function createWindow() {
   ipcMain.handle('accounts:proceed', (_event, accountId) => {
     const action = guard.proceed(accountId)
     if (!action) return false
-    return ACCOUNT_COMMANDS[action](accountId)
+    // A repeat that starts nothing – a sleep refused because the account is now in front – meets no
+    // refusal to spend the permission on, and the permission must not outlive the moment.
+    const started = ACCOUNT_COMMANDS[action](accountId)
+    if (!started) guard.revoke(accountId)
+    return started
   })
 
   // Back, Forward and Start on the status bar. Only those three: this is not a way to reach a

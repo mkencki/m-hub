@@ -1,5 +1,15 @@
 # Release notes
 
+## 0.6.2 – a page moved into the account view stays moved
+
+**Open in the account view no longer brings the window back once the page has arrived.** When
+the account's own page was still loading something as the move began, it reported that load as
+cut short, and the application took the report for the move failing: the page was in the account,
+and the window came back beside it holding the same page. The move is now judged by the page
+arriving, not by that report – nor can the account's page changing its own address while the move
+is on its way pass for the page arriving and close the window too early. A page in the account
+that refuses to be left, an unsent draft in it, still keeps the window open, as before.
+
 ## 0.6.1 – back, forward and the start page, for every account
 
 **Back and Forward for the account you are looking at.** Two arrows at the left of the status

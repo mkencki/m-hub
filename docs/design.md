@@ -677,7 +677,8 @@ the tests had to learn on CI. `getActiveIndex()` answers with the PENDING entry 
 is on its way, so a test waits for the committed address before the next key. A page's own
 `pushState` counts for Back only after a real activation – a gesture injected through
 `executeJavaScript` leaves the entry skippable – so the test clicks through CDP. And `loadURL`
-over a page still loading can reject with the error of the load it interrupted.
+over a live page can reject with the abort that page reports of its own load – not only the load
+that cut it short, as was thought here, but a later one too; 0.6.2 below.
 
 **Windows a page opens (0.6.1).** In such a window `commandFor` passes only the keys of a small
 browser – back, forward, reload, hard reload and the developer tools – and acts on that window, not
@@ -688,6 +689,23 @@ key down, the Alt's included, so the window never sees Alt let go – the end-to
 halves, Alt+← leaving the bar hidden and Alt alone showing it. Moving a page into the account view
 hides the window, loads the address in the view, and closes the window only once the load has
 committed; a refused load, or a window whose own page refuses to close, brings it back.
+
+**Knowing that a page arrived (0.6.2).** The move above was judged by the promise `loadURL`
+returns, and that promise answers a narrower question than it seems to. Electron fails it on the
+first failure the main frame reports after the load was asked for, whichever page the failure is
+about, and the page being left reports its own unfinished load as aborted when the new one cuts it
+short – at once, or only after the new page is in (the first build of the v0.6.1 tag met it in a
+window, run 39074653622). A page that had reached the account view could so bring its window back
+beside it. The promise can also resolve on the page in front rewriting its own address before the
+new load has started, which would close a window whose page never came. `loadAndLand` in
+`landing.js` starts the load and answers from what the view reports instead: a commit of the main
+frame, or a step within the page to that very address, is an arrival; an error page, or the abort
+Electron reports with the address itself when the page in front refuses to be left, is a failure,
+and so is loading that stops, or a view that goes away, without a commit; an abort reported of any
+other address decides nothing. Its listeners are in place before the load starts, since the first
+reports can come before `loadURL` returns. The end-to-end tests load their pages the same way,
+through `loadInto`, and the test of the move was seen failing on CI before the fix went in (run
+39114324854).
 
 ## 10. Tests
 

@@ -591,6 +591,18 @@ describe('putting an account to sleep', () => {
     await expect(manager.settled(first.id)).resolves.toBe(false)
   })
 
+  // A wake can finish reading the account list after the application has started to quit.
+  test('no view is made for a window that is gone', () => {
+    const { window, manager, viewOf } = setUp()
+    manager.sleep(second.id)
+    viewOf(second.id).webContents.finishClosing()
+    window.destroyed = true
+    window.contentView.addChildView = () => {
+      throw new Error('Object has been destroyed')
+    }
+    expect(manager.add(second)).toBeNull()
+  })
+
   test('a view that goes once the window is gone does not reach for the window', () => {
     const { window, manager, viewOf } = setUp()
     manager.sleep(second.id)

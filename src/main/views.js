@@ -125,9 +125,10 @@ export class ViewManager {
 
   // Also how a sleeping account wakes: a new view on the same partition, which still holds the
   // sign-in. The index puts it back among the awake views in the order of the rail – see
-  // wakeIndex. A view still on its way out is not handed out again; null says so.
+  // wakeIndex. A view still on its way out is not handed out again; null says so. So does a
+  // window already gone: a wake reads the account list first and can finish after quitting began.
   add(account, { index } = {}) {
-    if (this.fallingAsleep.has(account.id)) return null
+    if (this.fallingAsleep.has(account.id) || this.window.isDestroyed()) return null
     if (this.views.has(account.id)) return this.views.get(account.id)
     this.asleep.delete(account.id)
     this.countsUnread.set(account.id, PLATFORMS[account.platform]?.unreadInTitle !== false)

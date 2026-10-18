@@ -123,6 +123,35 @@ test('a sleeping account clicked on the rail wakes and is shown', async () => {
   await expect(page.locator('#status-unread')).not.toContainText('asleep')
 })
 
+// Choosing a sleeping account wakes it first, and the operator can choose again before it is awake.
+// The later choice stays – on the screen and on the rail alike. Held here by a close that finishes
+// only when the test says so: an account still falling asleep is woken once it has fallen.
+test('an account chosen while another wakes stays in front and selected', async () => {
+  const id = await webContentsIdFor(electronApp, 'acc-two')
+  await electronApp.evaluate(({ webContents }, id) => {
+    const contents = webContents.fromId(id)
+    const close = contents.close.bind(contents)
+    contents.close = () => {
+      globalThis.__finishClosing = () => close()
+    }
+  }, id)
+  await sleep('acc-two')
+  await expect.poll(() => electronApp.evaluate(() => typeof globalThis.__finishClosing)).toBe('function')
+
+  await channel('acc-two').dispatchEvent('click')
+  await channel('acc-one').dispatchEvent('click')
+  await expect(channel('acc-one')).toHaveAttribute('aria-selected', 'true')
+  await electronApp.evaluate(() => globalThis.__finishClosing())
+
+  await expect.poll(() => webContentsIdFor(electronApp, 'acc-two')).not.toBeNull()
+  // The overtaken switch answers once its account is awake; whatever it would repaint, it has by now.
+  await page.waitForTimeout(500)
+  await expect(channel('acc-one')).toHaveAttribute('aria-selected', 'true')
+  await expect(channel('acc-two')).toHaveAttribute('aria-selected', 'false')
+  expect(await viewHeight('acc-one')).toBeGreaterThan(0)
+  expect(await viewHeight('acc-two')).toBe(0)
+})
+
 // Waking makes a new view on the same session, and the session outlives every view it ever had.
 // A listener registered per view would pile up there with every wake – a second "Downloading"
 // message for one file – while the new view has to get its own navigation gate.

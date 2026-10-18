@@ -2,11 +2,12 @@ import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, globalShortcut, s
 import path from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { cleanUserAgent, ViewManager } from './views.js'
+import { cleanUserAgent, ViewManager, wakeIndex } from './views.js'
 import { loadLayout, saveLayout, centreOn, setAutoStart, isAutoStartOn, acceptHoverReport, HIDDEN_FLAG } from './shell.js'
 import { loadAccounts, PLATFORMS, notificationsAllowed } from './accounts.js'
 import { classify, hostClass } from './navigation.js'
-import { accountMemoryMb, processIdsOf } from './account-memory.js'
+import { accountMemoryMb, appMemoryMb, processIdsOf } from './account-memory.js'
+import { SleepReminder, planSleepOthers, describeSleepOthers } from './sleep.js'
 import { commandFor } from './key-commands.js'
 import { UnloadGuard } from './unload-guard.js'
 import { channelMenuTemplate } from './channel-menu.js'
@@ -44,6 +45,12 @@ const MACRO_SHORTCUT = 'Control+Shift+Space'
 const DOWNLOAD_MESSAGE_MS = 8000
 // When the memory of each account is first written to the log – see logAccountMemory.
 const ACCOUNT_MEMORY_AFTER_MS = 15 * 60 * 1000
+// How long the processes of an account put to sleep are watched for going away. A service worker
+// keeps a closed page's process for about half a minute (measured while researching sleep); a
+// process still there after this is written down as such rather than waited for.
+const SLEEP_MEMORY_WAIT_MS = 90 * 1000
+// How long "N accounts put to sleep" stays on the status bar when nothing needs the operator.
+const SLEPT_MESSAGE_MS = 8000
 // The keyboard's own Back and Forward keys, as Windows reports them to a window. This is the one
 // place they are answered – see key-commands.js for why not in before-input-event as well.
 const APP_COMMANDS = { 'browser-backward': 'back', 'browser-forward': 'forward' }
@@ -209,14 +216,26 @@ async function createWindow() {
     return messageId
   }
 
-  manager = new ViewManager(window, app.userAgentFallback, ({ account, code, description }) => {
-    // The description comes from Chromium and names a failure, not a page – ERR_NAME_NOT_
-    // RESOLVED and its kin. It is the one string here worth keeping.
-    logger.write('account-load-failed', { account: account.id, platform: account.platform, code, reason: description })
-    showMessage(tr('loadAccountFailed', { account: account.name, code, description }), {
-      offer: { action: 'reload', accountId: account.id },
-    })
-  })
+  manager = new ViewManager(
+    window,
+    app.userAgentFallback,
+    ({ account, code, description }) => {
+      // A view on its way to sleep was closed on purpose; whatever it reports now is not news.
+      if (manager.isFallingAsleep(account.id) || manager.isAsleep(account.id)) return
+      // The description comes from Chromium and names a failure, not a page – ERR_NAME_NOT_
+      // RESOLVED and its kin. It is the one string here worth keeping.
+      logger.write('account-load-failed', { account: account.id, platform: account.platform, code, reason: description })
+      showMessage(tr('loadAccountFailed', { account: account.name, code, description }), {
+        offer: { action: 'reload', accountId: account.id },
+      })
+    },
+    {
+      // Closing an account's view takes the windows its page opened down with it, so an account with
+      // one open is not put to sleep. Asked at the moment of asking, never remembered.
+      hasChildWindows: (accountId) => Boolean(childWindows.get(accountId)?.size),
+      onSlept: (accountId) => fellAsleep(accountId),
+    },
+  )
 
   // A page with an unsent draft can refuse to be left, and Electron turns the refusal into
   // silence – see unload-guard.js. The guard is told what is about to happen, so a refusal can
@@ -244,6 +263,8 @@ async function createWindow() {
     back: (accountId) => manager.goBack(accountId),
     forward: (accountId) => manager.goForward(accountId),
     home: (accountId) => manager.goHome(accountId),
+    // Closing the page asks it first, so a draft can refuse this as it can refuse a reload.
+    sleep: (accountId) => sleepAccount(accountId),
   }
 
   // Every request to act on an account comes through here – a key, the status bar, the
@@ -262,6 +283,119 @@ async function createWindow() {
     if (started) guard.arm(accountId, command)
     return started
   }
+
+  // Putting accounts to sleep and waking them – the operator's choice to give up an account's
+  // notifications for a while, made by hand and nowhere else (docs/design.md, section 3). The view
+  // side is ViewManager.sleep; this side writes down what it cost and what came back, and makes a
+  // woken account's view the way every other view is made.
+  const accountsFile = path.join(dataDir, 'accounts.json')
+  const reminder = new SleepReminder()
+  // Account id -> what was known as its sleep was asked for: the processes behind its page, which
+  // are gone by the time it has fallen asleep, and what it and the whole application cost then.
+  const sleepNotes = new Map()
+
+  const sleepAccount = (accountId) => {
+    const account = manager.accounts.get(accountId)
+    const view = manager.liveView(accountId)
+    const metrics = app.getAppMetrics()
+    const pids = view ? processIdsOf(view.webContents) : []
+    const result = manager.sleep(accountId)
+    if (!result.ok) {
+      logger.write('account-sleep-refused', { account: accountId, platform: account?.platform, reason: result.reason })
+      return false
+    }
+    sleepNotes.set(accountId, {
+      pids,
+      at: Date.now(),
+      account: accountMemoryMb(metrics, pids),
+      app: appMemoryMb(metrics),
+    })
+    return true
+  }
+
+  // The measurement decision 10 of the report on sleep asked for, in the log: what the account cost
+  // awake, the whole application before, and the whole application once the account's processes
+  // have gone – or after SLEEP_MEMORY_WAIT_MS if they have not, said as such.
+  const watchMemoryRelease = (accountId, platform, note) => {
+    const check = () => {
+      if (window.isDestroyed()) return
+      const metrics = app.getAppMetrics()
+      const ms = Date.now() - note.at
+      const gone = accountMemoryMb(metrics, note.pids) === null
+      if (!gone && ms < SLEEP_MEMORY_WAIT_MS) {
+        setTimeout(check, 1000)
+        return
+      }
+      logger.write('app-memory', { account: accountId, platform, count: appMemoryMb(metrics), reason: gone ? 'after' : 'timeout', ms })
+    }
+    check()
+  }
+
+  const fellAsleep = (accountId) => {
+    const account = manager.accounts.get(accountId)
+    const note = sleepNotes.get(accountId)
+    sleepNotes.delete(accountId)
+    settling.delete(accountId)
+    reminder.fellAsleep(accountId)
+    logger.write('account-slept', { account: accountId, platform: account?.platform })
+    if (note) {
+      if (note.account !== null) logger.write('account-memory', { account: accountId, platform: account?.platform, count: note.account, reason: 'before' })
+      if (note.app !== null) logger.write('app-memory', { account: accountId, platform: account?.platform, count: note.app, reason: 'before' })
+      if (note.pids.length) watchMemoryRelease(accountId, account?.platform, note)
+    }
+    refreshBadge()
+  }
+
+  // A new view on the same partition – signed in still, its page starting from its address. Put
+  // back among the awake views in the order of the rail, and wired like every other view. Waking in
+  // the background leaves the operator where they are; showing it is the caller's business.
+  const wakeAccount = async (accountId) => {
+    if (manager.isFallingAsleep(accountId)) await manager.settled(accountId)
+    if (!manager.isAsleep(accountId)) return false
+    const { accounts } = await loadAccounts(accountsFile)
+    // Asked again: another wake may have finished while the file was being read.
+    if (!manager.isAsleep(accountId)) return false
+    const account = accounts.find((candidate) => candidate.id === accountId)
+    if (!account) return false
+    const index = wakeIndex(accounts.map((candidate) => candidate.id), accountId, (id) => manager.views.has(id))
+    const view = manager.add(account, { index })
+    if (!view) return false
+    const startedAt = Date.now()
+    view.webContents.once('did-stop-loading', () =>
+      logger.write('account-woke', { account: accountId, platform: account.platform, ms: Date.now() - startedAt }),
+    )
+    prepareView(view, account)
+    reminder.woke(accountId)
+    fitViews()
+    refreshBadge()
+    return true
+  }
+
+  const wakeAll = async () => {
+    for (const accountId of manager.asleepIds()) await wakeAccount(accountId)
+    return true
+  }
+
+  // Every account but the one in front, in one click – the operator's own scenario. Each goes
+  // through runAccountCommand like a single sleep, so a page that refuses gets its own offer to go
+  // ahead. The ones that cannot sleep are named on the status bar, not skipped in silence.
+  const sleepOthers = async () => {
+    const { accounts } = await loadAccounts(accountsFile)
+    const plan = planSleepOthers(accounts.map((account) => account.id), (id) => manager.sleepRefusal(id))
+    let slept = 0
+    for (const accountId of plan.toSleep) if (runAccountCommand('sleep', accountId)) slept += 1
+    const kept = plan.kept.map(({ id, reason }) => {
+      const account = manager.accounts.get(id)
+      logger.write('account-sleep-refused', { account: id, platform: account?.platform, reason })
+      return { name: account?.name ?? id, reason }
+    })
+    // Gone on its own when everything went as asked; kept on the bar when an account stayed awake,
+    // since that one still delivers notifications the operator may have meant to silence.
+    showMessage(describeSleepOthers({ slept, kept, tr }), { tone: 'info', autoHideMs: kept.length ? 0 : SLEPT_MESSAGE_MS })
+    return slept
+  }
+
+  ipcMain.handle('accounts:wake-all', () => wakeAll())
 
   // Where the account being looked at can go, for the buttons on the status bar. Sent rather than
   // asked for, because it changes with every step the page takes, most of them without a load. The
@@ -392,12 +526,23 @@ async function createWindow() {
   ipcMain.handle('accounts:menu', (_event, accountId) => {
     const account = manager.accounts.get(accountId)
     if (!account || window.isDestroyed()) return false
-    const template = channelMenuTemplate({ account, hasChildWindows: Boolean(childWindows.get(accountId)?.size), tr })
-    const menu = Menu.buildFromTemplate(
-      template.map((item) =>
-        Object.hasOwn(ACCOUNT_COMMANDS, item.id) ? { ...item, click: () => runAccountCommand(item.id, accountId) } : item,
-      ),
-    )
+    const template = channelMenuTemplate({
+      account,
+      hasChildWindows: Boolean(childWindows.get(accountId)?.size),
+      asleep: manager.isAsleep(accountId) || manager.isFallingAsleep(accountId),
+      sleepRefusal: manager.sleepRefusal(accountId),
+      canSleepOthers: [...manager.views.keys()].some((id) => id !== manager.activeId && !manager.isFallingAsleep(id)),
+      tr,
+    })
+    const actions = {
+      wake: () => wakeAccount(accountId),
+      'sleep-others': () => sleepOthers(),
+    }
+    const clickFor = (id) => {
+      if (Object.hasOwn(ACCOUNT_COMMANDS, id)) return () => runAccountCommand(id, accountId)
+      return actions[id]
+    }
+    const menu = Menu.buildFromTemplate(template.map((item) => (clickFor(item.id) ? { ...item, click: clickFor(item.id) } : item)))
     channelMenuOpen = true
     menu.popup({
       window,
@@ -529,10 +674,15 @@ async function createWindow() {
     if (!window || window.isDestroyed()) return
     const byAccount = manager.unreadByAccount()
     const total = Object.values(byAccount).reduce((sum, n) => sum + n, 0)
-    window.setTitle(total ? `M-HUB (${total})` : 'M-HUB')
-    tray?.setToolTip(total ? tr('trayUnread', { n: total }) : 'M-HUB')
-    // The renderer also gets the per-account breakdown – the rail shows a count on each.
-    if (!window.webContents.isDestroyed()) window.webContents.send('unread:changed', { total, byAccount })
+    // Sleeping accounts are said next to the count, wherever the count is: they are the ones it
+    // cannot speak for.
+    const asleep = manager.asleepIds()
+    const asleepSuffix = asleep.length ? ` – ${tr('unreadAsleep', { n: asleep.length })}` : ''
+    window.setTitle((total ? `M-HUB (${total})` : 'M-HUB') + asleepSuffix)
+    tray?.setToolTip((total ? tr('trayUnread', { n: total }) : 'M-HUB') + asleepSuffix)
+    // The renderer also gets the per-account breakdown – the rail shows a count on each – and which
+    // accounts are asleep, so their channels say so instead of showing nothing new.
+    if (!window.webContents.isDestroyed()) window.webContents.send('unread:changed', { total, byAccount, asleep })
 
     // A count being held at its last non-zero value has nothing to wake it: the page that
     // stopped blinking stopped sending titles too. One timer, rearmed on every pass, and
@@ -799,7 +949,11 @@ async function createWindow() {
     // Unless the application ended the renderer itself, to restart a page that had hung: that
     // exit is reported like any crash, and announcing it would tell the operator about a crash
     // nobody had.
+    //
+    // Nor a view put to sleep: the operator closed it, and nothing it reports on the way out is news.
+    const goingOrGone = () => manager.isFallingAsleep(account.id) || manager.isAsleep(account.id)
     view.webContents.on('render-process-gone', (_event, details) => {
+      if (goingOrGone()) return
       if (manager.takeExpectedExit(account.id)) {
         logger.write('account-restarted', { account: account.id })
         return
@@ -813,6 +967,7 @@ async function createWindow() {
     // A hung page does not answer a reload – the request waits behind the very script that
     // hung – so what is offered here is a restart of the renderer.
     view.webContents.on('unresponsive', () => {
+      if (goingOrGone()) return
       logger.write('account-unresponsive', { account: account.id })
       showMessage(tr('accountUnresponsive', { account: account.name }), {
         offer: { action: 'reload', accountId: account.id, command: 'restart' },
@@ -831,11 +986,17 @@ async function createWindow() {
       // The reload never started, so no load will finish and take the account out of settling:
       // left there, it would stop a clicked notification from ever switching to it again.
       settling.delete(account.id)
+      // A sleep refused is an account that stays awake, its view where it was. The offer then says
+      // what going ahead means – putting it to sleep, not discarding something to stay.
+      if (manager.isFallingAsleep(account.id)) {
+        manager.stayAwake(account.id)
+        sleepNotes.delete(account.id)
+      }
       const action = guard.blocked(account.id)
       logger.write('account-unload-refused', { account: account.id, platform: account.platform, reason: action ?? 'page' })
       showMessage(tr('unsavedChanges', { account: account.name }), {
         tone: 'info',
-        offer: action ? { action: 'proceed', accountId: account.id } : null,
+        offer: action ? { action: 'proceed', accountId: account.id, command: action } : null,
       })
     })
 
@@ -850,7 +1011,7 @@ async function createWindow() {
     view.webContents.on('did-stop-loading', () => settling.delete(account.id))
 
     view.webContents.on('focus', () => {
-      if (settling.has(account.id)) return
+      if (settling.has(account.id) || goingOrGone()) return
       if (manager.activeId === account.id) return
       if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return
       window.webContents.send('accounts:select-id', account.id)
@@ -884,7 +1045,19 @@ async function createWindow() {
   fitViews()
   if (accounts.length) manager.show(accounts[0].id)
 
-  registerAccountChannels({ dataDir, manager, onAccountsChanged: fitViews, prepareView, onAccountShown: sendNavState })
+  registerAccountChannels({
+    dataDir,
+    manager,
+    onAccountsChanged: fitViews,
+    prepareView,
+    onAccountShown: sendNavState,
+    wakeAccount,
+    onAccountRemoved: (accountId) => {
+      reminder.woke(accountId)
+      sleepNotes.delete(accountId)
+      refreshBadge()
+    },
+  })
   clipboardSession = createClipboardSession()
   clipboardSession.warmUp()
   registerMacroChannels({ dataDir, manager, clipboardSession })
@@ -906,10 +1079,27 @@ async function createWindow() {
   // A laptop coming back from sleep leaves the services believing the computer is gone.
   // Reloading by itself would throw away whatever the operator was in the middle of typing
   // before the lid closed, so waking only says the accounts may need it.
+  //
+  // Sleeping accounts are said in the same message. The application did not restart, so the rule
+  // that every account wakes at the start did not reach them, and they are offered back – one
+  // button beside the reload – never woken behind the operator's back.
   powerMonitor.on('resume', () => {
     logger.write('woke-up', {})
-    if (!manager.activeId) return
-    showMessage(tr('wokeUp'), { offer: { action: 'reload', accountId: manager.activeId } })
+    const asleep = reminder.due('resume')
+    if (!manager.activeId && !asleep) return
+    const text = asleep ? `${tr('wokeUp')} ${tr('asleepReminder', { n: asleep })}` : tr('wokeUp')
+    const offer = manager.activeId
+      ? { action: 'reload', accountId: manager.activeId, wakeAll: asleep > 0 }
+      : { action: 'wake-all' }
+    showMessage(text, { offer })
+  })
+
+  // The window back from the tray, from a second launch or from the macro shortcut is the other
+  // moment an account left asleep is easy to forget. Only once a sleep has lasted, and not every
+  // time – see sleep.js.
+  window.on('show', () => {
+    const asleep = reminder.due('show')
+    if (asleep) showMessage(tr('asleepReminder', { n: asleep }), { tone: 'info', offer: { action: 'wake-all' } })
   })
 
   // The one shortcut that has to work when the app is not in front at all – that is the

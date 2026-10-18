@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest'
-import { accountMemoryMb, processIdsOf } from '../src/main/account-memory.js'
+import { accountMemoryMb, appMemoryMb, processIdsOf } from '../src/main/account-memory.js'
 
 // Putting accounts to sleep is worth building only if an awake account costs enough to matter,
 // and that has never been measured here. These two pieces turn the process table Electron
@@ -41,5 +41,18 @@ describe('accountMemoryMb', () => {
 
   test('says nothing for an account with no process found', () => {
     expect(accountMemoryMb([metric(100, 1024)], [400])).toBeNull()
+  })
+})
+
+// What putting an account to sleep gives back is read off the whole application, before and after:
+// the account's own processes are not all of it – the browser process keeps a little of every
+// session – and a migrating number in one process is no gain at all.
+describe('appMemoryMb', () => {
+  test('adds up the private memory of every process the application has', () => {
+    expect(appMemoryMb([metric(1, 100 * 1024), metric(2, 50 * 1024), metric(3, 512)])).toBe(151)
+  })
+
+  test('says nothing when the platform does not report private memory', () => {
+    expect(appMemoryMb([{ pid: 1, memory: { workingSetSize: 4096 } }])).toBeNull()
   })
 })

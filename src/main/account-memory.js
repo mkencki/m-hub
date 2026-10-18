@@ -23,3 +23,9 @@ export function accountMemoryMb(metrics, pids) {
   const kilobytes = found.reduce((sum, entry) => sum + entry.memory.privateBytes, 0)
   return Math.round(kilobytes / 1024)
 }
+
+// The private memory of the whole application, in megabytes – what putting an account to sleep is
+// measured against, before and after. Null when the platform reports none, as above.
+export function appMemoryMb(metrics) {
+  return accountMemoryMb(metrics, metrics.map((entry) => entry.pid))
+}

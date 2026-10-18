@@ -7,15 +7,20 @@ const tr = (key, params) => t('en', key, params)
 
 const idsOf = (template) => template.filter((item) => item.id).map((item) => item.id)
 
+const itemOf = (template, id) => template.find((item) => item.id === id)
+
 describe('the channel menu', () => {
   // F5 reaches only the account being looked at. The menu is how any OTHER account is reloaded
   // without switching to it first – a white WhatsApp behind the Messenger the operator is using.
-  test('offers the three ways back for that account', () => {
+  // And how an account is put to sleep, or all of them but the one in front.
+  test('offers the three ways back for that account, then sleep', () => {
     expect(idsOf(channelMenuTemplate({ account, hasChildWindows: false, tr }))).toEqual([
       'account',
       'reload',
       'hard-reload',
       'restart',
+      'sleep',
+      'sleep-others',
     ])
   })
 
@@ -52,8 +57,62 @@ describe('the channel menu', () => {
     expect(restart(warned)).toMatch(/window/i)
   })
 
-  test('separates the heading and the restart from the ordinary reloads', () => {
+  test('separates the heading, the restart and sleep from the ordinary reloads', () => {
     const types = channelMenuTemplate({ account, hasChildWindows: false, tr }).map((item) => item.type ?? item.id)
-    expect(types).toEqual(['account', 'separator', 'reload', 'hard-reload', 'separator', 'restart'])
+    expect(types).toEqual([
+      'account',
+      'separator',
+      'reload',
+      'hard-reload',
+      'separator',
+      'restart',
+      'separator',
+      'sleep',
+      'sleep-others',
+    ])
+  })
+})
+
+describe('sleep in the channel menu', () => {
+  test('an account that can sleep is offered sleep', () => {
+    const sleep = itemOf(channelMenuTemplate({ account, sleepRefusal: null, tr }), 'sleep')
+    expect(sleep.label).toBe(tr('channelMenuSleep'))
+    expect(sleep.enabled ?? true).toBe(true)
+  })
+
+  // The operator is using the account in front; putting it to sleep would put out the page they are
+  // looking at.
+  test('the account in front cannot be put to sleep', () => {
+    expect(itemOf(channelMenuTemplate({ account, sleepRefusal: 'active', tr }), 'sleep').enabled).toBe(false)
+  })
+
+  // Greyed with the reason in the label: a greyed item that does not say why reads as broken.
+  test('an account playing sound, or with a window open, says why it cannot sleep', () => {
+    const audible = itemOf(channelMenuTemplate({ account, sleepRefusal: 'audible', tr }), 'sleep')
+    const windows = itemOf(channelMenuTemplate({ account, sleepRefusal: 'child-window', tr }), 'sleep')
+    expect(audible.enabled).toBe(false)
+    expect(audible.label).toMatch(/sound/)
+    expect(windows.enabled).toBe(false)
+    expect(windows.label).toMatch(/window/)
+  })
+
+  test('putting the others to sleep needs someone else awake', () => {
+    expect(itemOf(channelMenuTemplate({ account, canSleepOthers: true, tr }), 'sleep-others').enabled ?? true).toBe(true)
+    expect(itemOf(channelMenuTemplate({ account, canSleepOthers: false, tr }), 'sleep-others').enabled).toBe(false)
+  })
+
+  // A sleeping account has no page: nothing to reload or restart, and nothing to put to sleep. Waking
+  // it from here leaves the operator on the account they are using.
+  test('a sleeping account offers to wake, and nothing that needs a page', () => {
+    const template = channelMenuTemplate({ account, asleep: true, canSleepOthers: true, tr })
+    expect(idsOf(template)).toEqual(['account', 'wake', 'sleep-others'])
+    expect(itemOf(template, 'wake').label).toBe(tr('channelMenuWake'))
+    expect(itemOf(template, 'account').label).toBe('WhatsApp work')
+  })
+
+  test('labels sleep in the interface language', () => {
+    const pl = (key) => t('pl', key)
+    expect(itemOf(channelMenuTemplate({ account, tr: pl }), 'sleep').label).toBe('Uśpij')
+    expect(itemOf(channelMenuTemplate({ account, asleep: true, tr: pl }), 'wake').label).toBe('Obudź')
   })
 })

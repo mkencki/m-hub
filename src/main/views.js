@@ -72,14 +72,39 @@ export function createView(account, defaultUA, onError = () => {}, View = WebCon
 // this is generous by orders of magnitude; what it must not be is open-ended.
 const EXPECTED_EXIT_MS = 5000
 
+// Where a woken account's view goes among the window's views: after the awake accounts that stand
+// before it on the rail. The window holds only awake views, so the account's place on the rail is
+// not its place there. An account the rail does not list goes to the end.
+export function wakeIndex(order, accountId, isAwake) {
+  const at = order.indexOf(accountId)
+  const before = at < 0 ? order : order.slice(0, at)
+  return before.filter((id) => id !== accountId && isAwake(id)).length
+}
+
 export class ViewManager {
   // The clock is a parameter for the same reason createView takes its view class: the rule
   // the latch enforces is about elapsed time, and it has to be examinable without waiting.
-  constructor(window, defaultUA, onError = () => {}, { now = () => Date.now() } = {}) {
+  // So is the view class, and for the same reason. Whether an account has windows of its own is
+  // asked of whoever tracks them, and onSlept hears of an account once its view is gone.
+  constructor(
+    window,
+    defaultUA,
+    onError = () => {},
+    { now = () => Date.now(), View = WebContentsView, hasChildWindows = () => false, onSlept = () => {} } = {},
+  ) {
     this.window = window
     this.defaultUA = defaultUA
     this.onError = onError
     this.now = now
+    this.View = View
+    this.hasChildWindows = hasChildWindows
+    this.onSlept = onSlept
+    // Accounts the operator put to sleep: no view, no page, no notification, no count – see
+    // sleep(). And those whose view has been asked to close and has not yet answered.
+    this.asleep = new Set()
+    this.fallingAsleep = new Set()
+    // Account id -> callers waiting to hear how a sleep under way ends.
+    this.sleepWaiters = new Map()
     // What a page CLAIMS is not what the rail shows: a page with something waiting blinks its
     // own title, and the count has to survive the half of that blink which says zero.
     this.latch = new UnreadLatch()
@@ -98,13 +123,19 @@ export class ViewManager {
     this.geometry = { x: 0, y: 0, width: 0, height: 0 }
   }
 
-  add(account) {
+  // Also how a sleeping account wakes: a new view on the same partition, which still holds the
+  // sign-in. The index puts it back among the awake views in the order of the rail – see
+  // wakeIndex. A view still on its way out is not handed out again; null says so.
+  add(account, { index } = {}) {
+    if (this.fallingAsleep.has(account.id)) return null
     if (this.views.has(account.id)) return this.views.get(account.id)
+    this.asleep.delete(account.id)
     this.countsUnread.set(account.id, PLATFORMS[account.platform]?.unreadInTitle !== false)
     this.accounts.set(account.id, account)
-    const view = createView(account, this.defaultUA, this.onError)
+    const view = createView(account, this.defaultUA, this.onError, this.View)
     view.setVisible(this.visible)
-    this.window.contentView.addChildView(view)
+    if (index === undefined) this.window.contentView.addChildView(view)
+    else this.window.contentView.addChildView(view, index)
     view.setBounds({ ...this.geometry, height: 0 })
     this.views.set(account.id, view)
     return view
@@ -112,14 +143,16 @@ export class ViewManager {
 
   // An edit keeps the view and its sign-in – the id does not change – but the name and the
   // rest are read from here by whatever names the account later: the channel menu, a download
-  // message. Only an account that already has a view is replaced; adding one is add()'s job.
+  // message, a wake. Only an account already known is replaced; adding one is add()'s job.
   update(account) {
-    if (this.views.has(account.id)) this.accounts.set(account.id, account)
+    if (this.accounts.has(account.id)) this.accounts.set(account.id, account)
   }
 
   remove(accountId) {
+    this.asleep.delete(accountId)
     const view = this.views.get(accountId)
-    if (!view) return false
+    if (!view) return this.accounts.delete(accountId)
+    this.fallingAsleep.delete(accountId)
     this.window.contentView.removeChildView(view)
     // Listeners come off BEFORE closing – otherwise the closing view still manages
     // to fire a callback that reaches for an object which no longer exists.
@@ -131,21 +164,109 @@ export class ViewManager {
     this.accounts.delete(accountId)
     this.expectedExits.delete(accountId)
     this.latch.forget(accountId)
-    if (this.activeId === accountId) {
-      this.activeId = null
-      const next = this.views.keys().next()
-      if (!next.done) this.show(next.value)
-    }
+    this.settle(accountId, false)
+    // Which account comes next is the rail's choice, not the order this map happens to hold:
+    // once accounts sleep and wake, that order is not the rail's, and switching here behind the
+    // renderer's back left the rail highlighting an account that was no longer in front.
+    if (this.activeId === accountId) this.activeId = null
     return true
   }
 
+  // Shows an account that is awake. A sleeping one has to be woken first, which is main's to do –
+  // it knows the account list and how a view is wired.
   show(accountId) {
-    if (!this.views.has(accountId)) return
+    if (!this.views.has(accountId) || this.fallingAsleep.has(accountId)) return false
     this.activeId = accountId
     for (const [id, view] of this.views) {
       view.setBounds(id === accountId ? this.geometry : { ...this.geometry, height: 0 })
     }
     this.views.get(accountId).webContents.focus()
+    return true
+  }
+
+  // Why an account cannot be put to sleep right now, or null when it can. Asked by the channel menu
+  // before anything is tried, so the item can say why it is greyed.
+  //   'active'        it is the account in front; the operator is using it
+  //   'audible'       its page plays sound – a call under way would be hung up on
+  //   'child-window'  its page has a window open, which the close would take down with it
+  //   'asleep'        it is asleep already, or on its way
+  //   'missing'       there is no such account
+  sleepRefusal(accountId) {
+    if (this.asleep.has(accountId) || this.fallingAsleep.has(accountId)) return 'asleep'
+    const view = this.liveView(accountId)
+    if (!view) return 'missing'
+    if (accountId === this.activeId) return 'active'
+    if (view.webContents.isCurrentlyAudible()) return 'audible'
+    if (this.hasChildWindows(accountId)) return 'child-window'
+    return null
+  }
+
+  // Puts an account to sleep by closing its view: Electron 43 has no way to discard or freeze a page
+  // and keep the WebContents, and a view taken off the window but not closed keeps its renderer
+  // alive. Only the operator asks for this – a sleeping account delivers no notification and has no
+  // count, which is the reason the application exists – so nothing here ever runs on a timer.
+  //
+  // The page is asked first, as leaving it any other way would ask it, and may refuse with a draft;
+  // main hears of that through will-prevent-unload and calls stayAwake(). So the view stays where it
+  // is, listeners and all, until Electron reports the contents destroyed. Detached and forgotten
+  // earlier, a refusal would leave a live renderer that nothing answers for.
+  sleep(accountId) {
+    const refusal = this.sleepRefusal(accountId)
+    if (refusal) return { ok: false, reason: refusal }
+    const view = this.views.get(accountId)
+    this.fallingAsleep.add(accountId)
+    view.webContents.once('destroyed', () => this.fellAsleep(accountId, view))
+    view.webContents.close({ waitForBeforeUnload: true })
+    return { ok: true }
+  }
+
+  fellAsleep(accountId, view) {
+    // Not if the page refused and the view is going for another reason – the application quitting –
+    // nor if the account was removed meanwhile.
+    if (!this.fallingAsleep.has(accountId) || this.views.get(accountId) !== view) return
+    this.fallingAsleep.delete(accountId)
+    if (!this.window.isDestroyed()) this.window.contentView.removeChildView(view)
+    this.views.delete(accountId)
+    this.countsUnread.delete(accountId)
+    this.expectedExits.delete(accountId)
+    this.latch.forget(accountId)
+    this.asleep.add(accountId)
+    this.settle(accountId, true)
+    this.onSlept(accountId)
+  }
+
+  // The page refused to be left. The account stays awake, its view where it was.
+  stayAwake(accountId) {
+    if (!this.fallingAsleep.delete(accountId)) return
+    this.settle(accountId, false)
+  }
+
+  // Resolves once a sleep under way has ended: true when the account fell asleep, false when it
+  // stayed awake. At once, with false, when no sleep is under way.
+  settled(accountId) {
+    if (!this.fallingAsleep.has(accountId)) return Promise.resolve(false)
+    return new Promise((answer) => {
+      if (!this.sleepWaiters.has(accountId)) this.sleepWaiters.set(accountId, [])
+      this.sleepWaiters.get(accountId).push(answer)
+    })
+  }
+
+  settle(accountId, fellAsleep) {
+    const waiting = this.sleepWaiters.get(accountId) ?? []
+    this.sleepWaiters.delete(accountId)
+    for (const answer of waiting) answer(fellAsleep)
+  }
+
+  isAsleep(accountId) {
+    return this.asleep.has(accountId)
+  }
+
+  isFallingAsleep(accountId) {
+    return this.fallingAsleep.has(accountId)
+  }
+
+  asleepIds() {
+    return [...this.asleep]
   }
 
   // The only way back into a view that has gone stale – a laptop waking to find WhatsApp

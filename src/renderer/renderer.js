@@ -41,9 +41,29 @@ const macroList = document.getElementById('macro-list')
 let activeAccountId = null
 let railAccounts = []
 let unreadByAccount = {}
+// Accounts the operator put to sleep, as the main process last said. A sleeping account has no
+// count at all – not a zero – so its channel says it is asleep where the count would be.
+let asleepIds = new Set()
 
 function unreadLabel(count) {
   return count ? tr('unreadNew', { n: count }) : tr('noNew')
+}
+
+// The second line of a channel and what goes with it: the count of an awake account, or the word
+// that it is asleep. "No new" on a sleeping account would be a guess, and the one the operator
+// would act on – a badge that guesses is worse than a blank one.
+function paintChannelMeta(channel) {
+  const accountId = channel.dataset.accountId
+  const asleep = asleepIds.has(accountId)
+  const count = asleep ? 0 : (unreadByAccount[accountId] ?? 0)
+  const meta = channel.querySelector('.channel-meta')
+  meta.textContent = asleep ? tr('channelAsleep') : unreadLabel(count)
+  meta.classList.toggle('unread', count > 0)
+  // Collapsed, there is no name, so the channel colour alone has to carry unread – and the tile
+  // its own mark for asleep.
+  channel.classList.toggle('has-unread', count > 0)
+  channel.classList.toggle('asleep', asleep)
+  channel.title = asleep ? `${channel.dataset.baseTitle} – ${tr('channelAsleepTitle')}` : channel.dataset.baseTitle
 }
 
 // The active account's colour outlines the whole working area – it is the only saturated
@@ -60,9 +80,11 @@ function paintChannel(account) {
   }
 
   const total = Object.values(unreadByAccount).reduce((sum, n) => sum + n, 0)
-  document.getElementById('status-unread').textContent = total
-    ? tr('unreadTotal', { n: total })
-    : tr('allRead')
+  // The total speaks for the awake accounts only, so the sleeping ones are counted beside it.
+  const read = total ? tr('unreadTotal', { n: total }) : tr('allRead')
+  document.getElementById('status-unread').textContent = asleepIds.size
+    ? `${read} · ${tr('unreadAsleep', { n: asleepIds.size })}`
+    : read
 }
 
 // Where the account in front can go, as the main process last said. It names the account it is
@@ -103,14 +125,7 @@ async function switchTo(accountId) {
 }
 
 function refreshUnread() {
-  for (const channel of channels.children) {
-    const count = unreadByAccount[channel.dataset.accountId] ?? 0
-    const meta = channel.querySelector('.channel-meta')
-    meta.textContent = unreadLabel(count)
-    meta.classList.toggle('unread', count > 0)
-    // Collapsed, there is no name, so the channel colour alone has to carry unread.
-    channel.classList.toggle('has-unread', count > 0)
-  }
+  for (const channel of channels.children) paintChannelMeta(channel)
   paintChannel(railAccounts.find((a) => a.id === activeAccountId))
 }
 
@@ -177,10 +192,13 @@ async function refreshRail() {
   railAccounts = await window.mHub.listAccounts()
 
   // The rail rebuilds itself after every rename and reorder. Without remembering the
-  // account, the operator would land back on the first channel every single time.
+  // account, the operator would land back on the first channel every single time. When the
+  // account in front is gone, the next is the first one awake: choosing a sleeping one would
+  // wake it unasked. Only with every account asleep is the first one woken – something has to be
+  // in front.
   const selected = railAccounts.some((a) => a.id === activeAccountId)
     ? activeAccountId
-    : railAccounts[0]?.id ?? null
+    : (railAccounts.find((a) => !asleepIds.has(a.id)) ?? railAccounts[0])?.id ?? null
 
   channels.replaceChildren()
   for (const account of railAccounts) {
@@ -189,7 +207,7 @@ async function refreshRail() {
     channel.dataset.accountId = account.id
     channel.style.setProperty('--tint', account.color)
     channel.setAttribute('aria-selected', String(account.id === selected))
-    channel.title = `${account.name} (${account.platform})`
+    channel.dataset.baseTitle = `${account.name} (${account.platform})`
 
     const chip = document.createElement('i')
     chip.className = 'chip'
@@ -202,10 +220,9 @@ async function refreshRail() {
     // channel need me. The platform is already in the name and in the settings.
     const meta = document.createElement('span')
     meta.className = 'channel-meta'
-    meta.textContent = unreadLabel(unreadByAccount[account.id] ?? 0)
-    meta.classList.toggle('unread', (unreadByAccount[account.id] ?? 0) > 0)
 
     channel.append(chip, name, meta)
+    paintChannelMeta(channel)
     channel.addEventListener('click', () => switchTo(account.id))
     // The menu is the main process's to draw: a native one can stand over the account views,
     // which sit above this page and would cover anything drawn here.
@@ -535,7 +552,14 @@ function showMessage(text, tone = 'error', offer = null, { id = null, autoHideMs
   pendingOffer = offer
   shownMessageId = id
   document.getElementById('reload-account').hidden = offer?.action !== 'reload'
-  document.getElementById('proceed-anyway').hidden = offer?.action !== 'proceed'
+  const proceed = document.getElementById('proceed-anyway')
+  proceed.hidden = offer?.action !== 'proceed'
+  // Going ahead past a refused sleep puts the account to sleep; past anything else it throws the
+  // draft away. The button says which.
+  proceed.textContent = tr(offer?.command === 'sleep' ? 'sleepAnyway' : 'proceedAnyway')
+  // Waking sleeping accounts can be the whole offer, or ride beside a reload after the computer
+  // resumes.
+  document.getElementById('wake-all').hidden = !(offer?.action === 'wake-all' || offer?.wakeAll)
   document.getElementById('show-download').hidden = offer?.action !== 'show-download'
   bar.hidden = false
   if (autoHideMs) {
@@ -552,6 +576,7 @@ function hideMessage() {
   document.getElementById('message-text').textContent = ''
   document.getElementById('reload-account').hidden = true
   document.getElementById('proceed-anyway').hidden = true
+  document.getElementById('wake-all').hidden = true
   document.getElementById('show-download').hidden = true
   pendingOffer = null
   document.getElementById('message').hidden = true
@@ -572,6 +597,12 @@ document.getElementById('proceed-anyway').addEventListener('click', async () => 
   const accountId = pendingOffer?.accountId
   hideMessage()
   await window.mHub.proceedAnyway(accountId)
+})
+
+// Every sleeping account, woken in the background: the operator stays on the account in front.
+document.getElementById('wake-all').addEventListener('click', async () => {
+  hideMessage()
+  await window.mHub.wakeAll()
 })
 
 // The id of a download this process recorded, never a path – main looks up where the file
@@ -699,6 +730,7 @@ let overlayTotal = null
 window.mHub.onUnread((data) => {
   const total = typeof data === 'number' ? data : (data?.total ?? 0)
   unreadByAccount = typeof data === 'number' ? {} : (data?.byAccount ?? {})
+  asleepIds = new Set(typeof data === 'number' ? [] : (data?.asleep ?? []))
   refreshUnread()
   // Redrawing the same badge is not free and it is not nothing: setOverlayIcon replaces the
   // image on the taskbar button every time it is called, and this used to be called on every

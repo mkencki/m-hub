@@ -29,6 +29,8 @@ export function registerAccountChannels({
   onAccountsChanged,
   prepareView = () => {},
   onAccountShown = () => {},
+  wakeAccount = async () => false,
+  onAccountRemoved = () => {},
 }) {
   const accountsFile = path.join(dataDir, 'accounts.json')
 
@@ -66,6 +68,7 @@ export function registerAccountChannels({
 
     await saveAccounts(accountsFile, remaining)
     manager.remove(accountId)
+    onAccountRemoved(accountId)
 
     // Without clearing the partition the sign-in stays on disk and would come back
     // if an account with the same id were ever created again.
@@ -103,7 +106,11 @@ export function registerAccountChannels({
 
   // The status bar's Back and Forward belong to the account in front, so they are told where the
   // new one can go the moment it is shown.
+  //
+  // A sleeping account is woken first. One place for a click on its channel and for Ctrl+1..9,
+  // which both come here through the renderer – choosing an account is asking for its page.
   ipcMain.handle('accounts:switch', async (_event, accountId) => {
+    if (manager.isAsleep(accountId) || manager.isFallingAsleep(accountId)) await wakeAccount(accountId)
     manager.show(accountId)
     onAccountShown(accountId)
   })

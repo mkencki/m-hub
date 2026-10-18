@@ -160,11 +160,46 @@ export const clickMenuItem = (electronApp, itemId) =>
     last.options.callback?.()
   }, itemId)
 
+// Loads an address into a webContents from the main process and settles once the page has arrived
+// and finished loading – read from what the webContents reports, not from the promise loadURL
+// returns. The page being left can report its own unfinished load as aborted, and Electron fails
+// whichever load is waiting at that moment on the report, even one asked for after the new page had
+// committed: "(-3) loading 'https://www.facebook.com/login'" for a load of a local page (measured on
+// CI, run 39074653622). The application reads its own loads the same way – see landing.js.
+//
+// An error page standing in for the address fails at once, with the address in the message. The
+// address has to differ from the one the webContents stands on, since the arrival is told by it.
+export const loadInto = (electronApp, contentsId, address) =>
+  electronApp.evaluate(
+    ({ webContents }, { id, address }) => {
+      const contents = webContents.fromId(id)
+      return new Promise((arrived, failed) => {
+        const stopped = () => {
+          if (contents.getURL() === address) settle(() => arrived())
+        }
+        const errorPage = (_event, code, description, url, isMainFrame) => {
+          if (isMainFrame && code !== -3 && url === address) {
+            settle(() => failed(new Error(`${description} (${code}) loading '${address}'`)))
+          }
+        }
+        const settle = (then) => {
+          contents.removeListener('did-stop-loading', stopped)
+          contents.removeListener('did-fail-load', errorPage)
+          then()
+        }
+        contents.on('did-stop-loading', stopped)
+        contents.on('did-fail-load', errorPage)
+        contents.loadURL(address).catch(() => {})
+      })
+    },
+    { id: contentsId, address },
+  )
+
 // Serves the given pages from a local port, for whatever a test needs an account view to hold: a
 // history to step through, a page guarding an unsaved draft. A real service would put the test on
 // the network and inside somebody's account. Each key is a path, each value the HTML served there.
 //
-// Load them with loadURL from the main process, never by following a link. 127.0.0.1 is none of
+// Load them with loadInto from the main process, never by following a link. 127.0.0.1 is none of
 // any platform's hosts, so a link followed inside an account view is classified as external and
 // handed to shell.openExternal – the system browser, on whatever machine is running the test.
 export async function servePages(pages) {

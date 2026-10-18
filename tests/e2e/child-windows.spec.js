@@ -2,7 +2,7 @@ import { test, expect, _electron as electron } from '@playwright/test'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { appWindowId, blankTheViews, clearStatusBar, pressKey, servePages, webContentsIdFor } from './helpers.js'
+import { appWindowId, blankTheViews, clearStatusBar, loadInto, pressKey, servePages, webContentsIdFor } from './helpers.js'
 
 // A window a page opened for itself – a sign-in, or a post opened with a middle click – stays a
 // window, and gets what a small browser needs: Alt and the arrows, F5, and a menu that can move a
@@ -106,22 +106,10 @@ async function openWindowFrom(viewId, address) {
   return child
 }
 
-const load = (contentsId, pathname) =>
-  electronApp.evaluate(({ webContents }, { id, address }) => webContents.fromId(id).loadURL(address), {
-    id: contentsId,
-    address: server.url(pathname),
-  })
-
-// The first local page over the live one the window was opened for. Committed is not finished: the
-// live page may still be fetching what it asked for, and a load started over it stops that – which
-// Electron then reports as the NEW load failing, "(-3) loading 'https://www.facebook.com/login'"
-// (measured on CI, run 39069581881). The answer that counts is where the window ends up.
-async function loadOverLivePage(contentsId, pathname) {
-  await load(contentsId, pathname).catch(() => {})
-  await expect
-    .poll(() => electronApp.evaluate(({ webContents }, id) => webContents.fromId(id).getURL(), contentsId))
-    .toBe(server.url(pathname))
-}
+// A local page into the window, over the live one it was opened for. Committed is not finished: the
+// live page may still be fetching what it asked for, and its report of that cut short can fail the
+// promise of this load or of the next one (runs 39069581881 and 39074653622) – hence loadInto.
+const load = (contentsId, pathname) => loadInto(electronApp, contentsId, server.url(pathname))
 
 // The address a webContents has committed. A step is waited for by this, not by the place in the
 // history: getActiveIndex() moves the moment a step is asked for, before the page has landed, and a
@@ -153,9 +141,8 @@ const windowCount = () => electronApp.evaluate(({ BrowserWindow }) => BrowserWin
 // A window on a local history of two pages, standing on the second.
 async function windowWithHistory() {
   const child = await openWindowFrom(viewIds.two, 'https://www.facebook.com/login')
-  await loadOverLivePage(child.contentsId, '/one')
+  await load(child.contentsId, '/one')
   await load(child.contentsId, '/two')
-  await expect.poll(() => committedUrl(child.contentsId)).toBe(server.url('/two'))
   return child
 }
 
@@ -221,7 +208,7 @@ test('the menu offers the account view for a page of the service, and only for o
   await expect.poll(() => menuItem(child.windowId, 'open-in-view')).toMatchObject({ enabled: true })
 
   // A page somewhere else is the system browser's business, not the account's.
-  await loadOverLivePage(child.contentsId, '/one')
+  await load(child.contentsId, '/one')
   await expect.poll(() => menuItem(child.windowId, 'open-in-view')).toMatchObject({ enabled: false })
 })
 
@@ -231,19 +218,43 @@ test('the menu of a sign-in window does not offer the account view', async () =>
   await expect.poll(() => menuItem(child.windowId, 'open-in-view')).toMatchObject({ enabled: false })
 })
 
+// The load of the account view is recorded rather than done, so these tests do not depend on what
+// the service answers, and the view reports what Electron would report of it: whether the page got
+// there is read from those reports, not from the promise loadURL returns (see landing.js).
+const reportLoads = (viewId, report) =>
+  electronApp.evaluate(
+    ({ webContents }, { id, report }) => {
+      globalThis.__loads = []
+      const contents = webContents.fromId(id)
+      const event = { preventDefault() {} }
+      contents.loadURL = (address) => {
+        globalThis.__loads.push(address)
+        if (report === 'commit') {
+          contents.emit('did-navigate', event, address, 200, 'OK')
+          return Promise.resolve()
+        }
+        if (report === 'refusal') {
+          // How Electron reports a page that refuses to be left: an abort of the address asked for.
+          contents.emit('did-fail-load', event, -3, 'ERR_ABORTED', address, true)
+          return Promise.reject(Object.assign(new Error(`ERR_ABORTED (-3) loading '${address}'`), { errno: -3 }))
+        }
+        // 'left behind': the page being left reports its unfinished load cut short, at once, which
+        // fails the promise; the new page commits a moment later all the same.
+        const left = contents.getURL()
+        contents.emit('did-fail-load', event, -3, 'ERR_ABORTED', left, true)
+        setTimeout(() => contents.emit('did-navigate', event, address, 200, 'OK'), 300)
+        return Promise.reject(Object.assign(new Error(`ERR_ABORTED (-3) loading '${left}'`), { errno: -3 }))
+      }
+    },
+    { id: viewId, report },
+  )
+
 // The page moves into the account it came from, the rail goes to that account, and the window,
-// whose page is now in the view, closes. The load is recorded rather than done, so the test does
-// not depend on what the service answers.
+// whose page is now in the view, closes.
 test('Open in the account view moves the page there and closes the window', async () => {
   const child = await openWindowFrom(viewIds.two, 'https://www.facebook.com/login')
   await expect.poll(() => menuItem(child.windowId, 'open-in-view')).toMatchObject({ enabled: true })
-  await electronApp.evaluate(({ webContents }, id) => {
-    globalThis.__loads = []
-    webContents.fromId(id).loadURL = (address) => {
-      globalThis.__loads.push(address)
-      return Promise.resolve()
-    }
-  }, viewIds.two)
+  await reportLoads(viewIds.two, 'commit')
   await clickMenuItem(child.windowId, 'open-in-view')
 
   // The address the window stood on – a page of the service. Not compared letter for letter: the
@@ -261,14 +272,11 @@ test('Open in the account view moves the page there and closes the window', asyn
 test('a window whose page refuses to close comes back after the move', async () => {
   const child = await openWindowFrom(viewIds.two, 'https://www.facebook.com/login')
   await expect.poll(() => menuItem(child.windowId, 'open-in-view')).toMatchObject({ enabled: true })
-  await electronApp.evaluate(
-    ({ BrowserWindow, webContents }, { viewId, childId }) => {
-      webContents.fromId(viewId).loadURL = () => Promise.resolve()
-      const window = BrowserWindow.fromId(childId)
-      window.close = () => window.webContents.emit('will-prevent-unload', { preventDefault() {} })
-    },
-    { viewId: viewIds.two, childId: child.windowId },
-  )
+  await reportLoads(viewIds.two, 'commit')
+  await electronApp.evaluate(({ BrowserWindow }, childId) => {
+    const window = BrowserWindow.fromId(childId)
+    window.close = () => window.webContents.emit('will-prevent-unload', { preventDefault() {} })
+  }, child.windowId)
 
   await clickMenuItem(child.windowId, 'open-in-view')
 
@@ -282,9 +290,7 @@ test('a window whose page refuses to close comes back after the move', async () 
 test('a move the account page refuses leaves the window open', async () => {
   const child = await openWindowFrom(viewIds.two, 'https://www.facebook.com/login')
   await expect.poll(() => menuItem(child.windowId, 'open-in-view')).toMatchObject({ enabled: true })
-  await electronApp.evaluate(({ webContents }, id) => {
-    webContents.fromId(id).loadURL = () => Promise.reject(Object.assign(new Error('ERR_ABORTED (-3)'), { errno: -3, code: 'ERR_ABORTED' }))
-  }, viewIds.two)
+  await reportLoads(viewIds.two, 'refusal')
 
   await clickMenuItem(child.windowId, 'open-in-view')
 
@@ -292,4 +298,18 @@ test('a move the account page refuses leaves the window open', async () => {
     .poll(() => electronApp.evaluate(({ BrowserWindow }, id) => BrowserWindow.fromId(id)?.isVisible() ?? null, child.windowId))
     .toBe(true)
   expect(await windowCount()).toBe(2)
+})
+
+// The page being left can report its own unfinished load as aborted – the account view's live page
+// still fetching what it asked for – and loadURL's promise fails on that report (measured on CI,
+// run 39074653622). The page the window held is in the view all the same, so the window closes
+// rather than coming back beside it.
+test('the account page reporting its own load cut short does not bring the window back', async () => {
+  const child = await openWindowFrom(viewIds.two, 'https://www.facebook.com/login')
+  await expect.poll(() => menuItem(child.windowId, 'open-in-view')).toMatchObject({ enabled: true })
+  await reportLoads(viewIds.two, 'left behind')
+
+  await clickMenuItem(child.windowId, 'open-in-view')
+
+  await expect.poll(windowCount).toBe(1)
 })

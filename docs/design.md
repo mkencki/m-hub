@@ -743,6 +743,45 @@ reports can come before `loadURL` returns. The end-to-end tests load their pages
 through `loadInto`, and the test of the move was seen failing on CI before the fix went in (run
 39114324854).
 
+**Putting an account to sleep (0.7.0).** Sleep is `ViewManager.sleep`, and its order is the
+reverse of `remove()`: the view is closed first and detached only on `destroyed`. The close is
+`close({ waitForBeforeUnload: true })`, so a page holding a draft can refuse it, and a view already
+detached and stripped of its listeners would then be a renderer nobody answered for. Until
+`destroyed` the account is falling asleep: `show()` and `add()` treat it as unavailable, the crash,
+hang and focus handlers say nothing for it, and a refusal arrives as `will-prevent-unload`, which
+keeps the account awake and offers "Sleep anyway" through the same `UnloadGuard` as a refused
+reload. A repeat that starts nothing – the account has come to the front meanwhile – takes the
+guard's permission back at once, since no refusal will come to spend it. Sleep is refused for the
+account in front, for one playing sound (`isCurrentlyAudible()`) and for one with a window of its
+own open, which the close would take with it. What the close reports was measured before the
+feature had a line, in a bare Electron 43.4.1 that `view-close.spec.js` starts on its own, because
+Playwright's CDP takes a real `beforeunload` for a dialog of its own (run 39164517156). A plain
+close, a hidden one and a close during a load report `destroyed` and nothing else within 1–8 ms, so
+no crash, hang or failed load is announced. A page with an unconditional `beforeunload` refuses even
+without an earlier click, because the close itself counts as a user activation. And a service
+worker keeps the old process alive for about 30 s, while a view woken meanwhile gets a process of
+its own and loads from the worker's cache in tens of milliseconds.
+
+**Waking an account (0.7.0).** Waking is `add()` on the same partition at `wakeIndex` – the number
+of awake accounts before it in the rail's order, since the window's children are the awake views
+alone – and the `prepareView` every view goes through. A session outlives every view it had, so
+what is registered on the session is registered once (`wiredSessions`) and what belongs to the
+view is registered on each new one; an end-to-end test counts both after three sleeps. A click on a
+sleeping channel and Ctrl+1..9 come through `accounts:switch`, which wakes first, and waking takes
+long enough for a second choice: `switchAccountHandler` counts the switches and only the latest
+shows its account, and the renderer leaves the rail alone when an answer comes for a choice that is
+no longer the latest. A wake that finishes after quitting began makes no view, as `add()` returns
+nothing for a window that is gone. The reminder is `SleepReminder`: after a resume it always
+speaks; when the window is shown, only once the oldest sleep is half an hour old and the last
+reminder an hour gone. The log records `account-slept`, `account-woke` with the milliseconds to the
+first `did-stop-loading`, `account-sleep-refused` with its reason, the account's private memory
+before the close, and the whole application's before and once the account's processes are gone –
+or `timeout` after 90 s. The account's own memory after the close cannot be read, its processes
+being gone; what shrinks is the whole. One lesson came from the tests, not the feature: a load
+gives its view the focus, and a focused view in the background is routed as a clicked
+notification, so a test that blanks every view hands the rail to the last one blanked (run
+39166887625).
+
 ## 10. Tests
 
 Behaviour is tested, not implementation detail.

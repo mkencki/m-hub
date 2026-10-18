@@ -1,5 +1,35 @@
 # Release notes
 
+## 0.7.0 – put an account to sleep, and wake it
+
+**Put an account to sleep when memory runs short.** A right click on a channel now offers Put to
+sleep: the account's page is closed and its memory goes back to the system – a WhatsApp or a
+Messenger takes 300–500 MB awake, a Facebook about 700. Put all but the current account to sleep
+does it for every account but the one you are using, in one click. A sleeping account gets no
+notifications and no count, and the application says so rather than leaving a blank: the channel
+is dimmed and reads "asleep" (in the folded rail, "zz"), and the status bar, the window title and
+the tray say how many accounts are asleep.
+
+**Nothing puts an account to sleep on its own, and nothing keeps it asleep for good.** A click on
+a sleeping channel, or Ctrl+1..9, wakes it and shows it; Wake in its menu wakes it and leaves you
+where you are. The sign-in survives – the account just loads again. Every account wakes when the
+application starts. After the computer wakes up, and when the window comes back from the tray
+once an account has slept for half an hour, the status bar offers to wake them – it never does so
+by itself.
+
+**What cannot sleep says why.** The account in front cannot be put to sleep, nor can one that is
+playing sound or has a window of its own open, and the menu item says which. A page holding an
+unsent draft can refuse to be closed, as it can refuse a reload; the status bar says so and offers
+Sleep anyway. When some accounts stay awake after Put all but the current account to sleep, the
+status bar names them.
+
+**One limit to know:** a notification shown before its account fell asleep wakes nothing when
+clicked – the page it came from is gone.
+
+**The log records what each sleep freed and how long each wake took,** so the expected gain –
+about 1.3 GB for both WhatsApps and Facebook – can be replaced in the documentation by a measured
+one.
+
 ## 0.6.2 – a page moved into the account view stays moved
 
 **Open in the account view no longer brings the window back once the page has arrived.** When

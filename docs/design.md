@@ -114,6 +114,35 @@ notification and reports no count, which is the entire reason this application e
 Whether five accounts are worth two gigabytes is the operator's decision, so the number is in
 the README rather than hidden behind a lazy-loading switch.
 
+*Amended 2026-10-17, by the operator's decision.* An account stays loaded **unless the operator
+puts it to sleep by hand.** The log the application keeps since 0.6.0 put the price of an awake
+account higher than the figure above: 300–511 MB of private memory for a WhatsApp, 324–408 for
+Messenger and about 700 for a settled Facebook (2026-10-17 and 18, `account-memory`), with the
+whole application at about 2.0 GB on a laptop left with 450 MB to spare during heavy work. Sleep
+answers that, and it is only acceptable as the opt-out it is:
+
+- **Manual and nothing else.** No timer, no idle rule, no memory threshold puts an account to
+  sleep. A sleeping account delivers no notification and reports no count, so the choice to give
+  that up is the operator's, made for one account at a time from its channel's menu.
+- **Visible.** The rail marks a sleeping account as asleep where its count would be. A blank
+  there would read as "nothing waiting", which a sleeping account cannot know.
+- **Every account wakes at the start.** Sleep is meant for a spell of heavy work, not for good,
+  and does not survive a restart.
+- **Offered back, never woken behind the operator's back.** The application lives in the tray
+  and a laptop resumes rather than restarts, so the start alone would not stop an account being
+  forgotten for days. After the computer wakes, and when the window comes back to the front, the
+  status bar says how many accounts are asleep and offers to wake them.
+- **Sleep is the view closed, and waking is a load.** Electron 43 cannot discard or freeze a page,
+  so sleeping closes the account's view and waking creates it again on the same `persist:`
+  partition: the sign-in, cookies and storage survive, the page starts from its address. A
+  notification shown before the account fell asleep wakes nothing when clicked – the page it came
+  from is gone.
+
+What sleeping frees is an estimate until 0.7.0 has been used: about what the account cost awake,
+released up to half a minute after the close while a service worker keeps the process alive.
+Sleeping both WhatsApps and Facebook while working in Messenger is expected to free about 1.3 GB.
+The measured gain replaces this paragraph's estimate in a later change.
+
 Isolation comes from a separate session partition per account. Two WhatsApp accounts
 see each other as two independent browsers – they share no cookies, no `localStorage` and
 no `IndexedDB`. This is the heart of the application and the one mechanism without which
@@ -137,7 +166,9 @@ windows.
 Creates a `WebContentsView` per account, attaches its session, sets the `User-Agent`,
 governs geometry as the window resizes, switches the active view, reloads an account in one of
 three ways – ordinary, past the cache, or by restarting its renderer – and steps an account back,
-forward or to its start page. Knows nothing about where the account list came from.
+forward or to its start page. Puts an account to sleep by closing its view, asking the page first,
+and detaches the view only once Electron reports it destroyed; wakes it as a new view on the same
+partition. Knows nothing about where the account list came from.
 
 ### 4.3 `macros` – the macro store
 
@@ -242,7 +273,9 @@ WhatsApp's own limits and above a typical instructional video.
 1. Read `accounts.json`; with no file, run the first-account wizard.
 2. Create a view per account, with a `persist:<id>` session and an overridden `User-Agent`.
 3. Restore the window size and position and the last active channel.
-4. Inactive views load in the background so notifications work for every account.
+4. Inactive views load in the background so notifications work for every account – including
+   one the operator had put to sleep before the restart, since sleep lasts until the next start
+   at most (section 3, amended 2026-10-17).
 
 ### 6.2 Using a macro
 
@@ -292,7 +325,8 @@ Beyond these rules the application is an ordinary browser with tabs.
 |---|---|
 | `accounts.json` damaged | a backup copy alongside it, start with an empty list, message shown |
 | no network | the view shows the platform's own state; the app does not intervene – F5 or the channel menu brings the page back once the network does |
-| a page refuses to be left (an unsent draft) | said in the status bar by account; an offer to discard only when the refusal answers a reload or a step just asked for |
+| a page refuses to be left (an unsent draft) | said in the status bar by account; an offer to discard only when the refusal answers a reload or a step just asked for, and to sleep anyway when it answers a sleep – the account stays awake until then |
+| an account the operator put to sleep | no notification and no count; the rail says "asleep" where the count would be; the status bar offers to wake it after the computer resumes and when the window comes back, and nothing wakes it by itself |
 | WhatsApp refuses the client (`User-Agent`) | an explicit message suggesting an update |
 | attachment file missing from the store | the macro is marked incomplete, the text still works |
 | file over the limit | refused, with the size and the limit reported |
@@ -342,7 +376,9 @@ and each item below was measured before it was changed rather than assumed.
   asks the renderer where the pointer is now, because holding a report back loses it.
 - **Accounts in the background run at full speed.** `backgroundThrottling` was unset, so a
   100 ms timer ticked 10 times in ten seconds in a hidden view instead of 100 – and hiding the
-  window to the tray put the ACTIVE account in that state too.
+  window to the tray put the ACTIVE account in that state too. *Amended 2026-10-17:* this holds
+  for every awake account and stays so. Throttling is not how memory is saved here; an account the
+  operator puts to sleep has no page left to throttle (section 3).
 - **A second copy over the same profile gives up** instead of fighting the first over the
   cookie stores, where the loser loses its sign-in.
 - **The window button puts the app in the tray**, on by default, switchable in Settings.
@@ -706,6 +742,45 @@ other address decides nothing. Its listeners are in place before the load starts
 reports can come before `loadURL` returns. The end-to-end tests load their pages the same way,
 through `loadInto`, and the test of the move was seen failing on CI before the fix went in (run
 39114324854).
+
+**Putting an account to sleep (0.7.0).** Sleep is `ViewManager.sleep`, and its order is the
+reverse of `remove()`: the view is closed first and detached only on `destroyed`. The close is
+`close({ waitForBeforeUnload: true })`, so a page holding a draft can refuse it, and a view already
+detached and stripped of its listeners would then be a renderer nobody answered for. Until
+`destroyed` the account is falling asleep: `show()` and `add()` treat it as unavailable, the crash,
+hang and focus handlers say nothing for it, and a refusal arrives as `will-prevent-unload`, which
+keeps the account awake and offers "Sleep anyway" through the same `UnloadGuard` as a refused
+reload. A repeat that starts nothing – the account has come to the front meanwhile – takes the
+guard's permission back at once, since no refusal will come to spend it. Sleep is refused for the
+account in front, for one playing sound (`isCurrentlyAudible()`) and for one with a window of its
+own open, which the close would take with it. What the close reports was measured before the
+feature had a line, in a bare Electron 43.4.1 that `view-close.spec.js` starts on its own, because
+Playwright's CDP takes a real `beforeunload` for a dialog of its own (run 39164517156). A plain
+close, a hidden one and a close during a load report `destroyed` and nothing else within 1–8 ms, so
+no crash, hang or failed load is announced. A page with an unconditional `beforeunload` refuses even
+without an earlier click, because the close itself counts as a user activation. And a service
+worker keeps the old process alive for about 30 s, while a view woken meanwhile gets a process of
+its own and loads from the worker's cache in tens of milliseconds.
+
+**Waking an account (0.7.0).** Waking is `add()` on the same partition at `wakeIndex` – the number
+of awake accounts before it in the rail's order, since the window's children are the awake views
+alone – and the `prepareView` every view goes through. A session outlives every view it had, so
+what is registered on the session is registered once (`wiredSessions`) and what belongs to the
+view is registered on each new one; an end-to-end test counts both after three sleeps. A click on a
+sleeping channel and Ctrl+1..9 come through `accounts:switch`, which wakes first, and waking takes
+long enough for a second choice: `switchAccountHandler` counts the switches and only the latest
+shows its account, and the renderer leaves the rail alone when an answer comes for a choice that is
+no longer the latest. A wake that finishes after quitting began makes no view, as `add()` returns
+nothing for a window that is gone. The reminder is `SleepReminder`: after a resume it always
+speaks; when the window is shown, only once the oldest sleep is half an hour old and the last
+reminder an hour gone. The log records `account-slept`, `account-woke` with the milliseconds to the
+first `did-stop-loading`, `account-sleep-refused` with its reason, the account's private memory
+before the close, and the whole application's before and once the account's processes are gone –
+or `timeout` after 90 s. The account's own memory after the close cannot be read, its processes
+being gone; what shrinks is the whole. One lesson came from the tests, not the feature: a load
+gives its view the focus, and a focused view in the background is routed as a clicked
+notification, so a test that blanks every view hands the rail to the last one blanked (run
+39166887625).
 
 ## 10. Tests
 

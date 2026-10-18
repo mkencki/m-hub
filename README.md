@@ -82,6 +82,7 @@ installed build needs none of this: its installer writes the same shortcut.
 | **Keyboard** | `Ctrl+1`..`Ctrl+9` jump to a channel, `Ctrl+;` opens macros, `Ctrl+Shift+Space` does it from any program, `F5` or `Ctrl+R` reloads the account you are looking at, `Ctrl+F5` reloads it past the cache, `Alt+←` and `Alt+→` go back and forward in it |
 | **Tray** | closing the window keeps the app running and noticing; switch it off in Settings. Autostart really does start hidden |
 | **Recovery** | a crashed, hung or stale account offers a reload in the status bar – nothing reloads by itself, because that would throw away a half-typed message; a page holding unsaved changes says so instead of silently ignoring the reload, and offers to discard them; a right click on a channel reloads, hard-reloads or restarts that account while you go on looking at another |
+| **Sleep** | a right click on a channel puts that account to sleep, or every account but the one you are using, and gives its memory back during heavy work; a sleeping account gets no notifications and says "asleep" instead of a count, a click on it wakes it, and every account wakes when the app starts – see [The services](#the-services) |
 | **Links** | a link out of a conversation opens in your own browser, not in a window without an address bar carrying your signed-in session |
 | **Back and forward** | ← → and ⌂ at the left of the status bar go back, forward and to the account's start page, greyed when there is nowhere to go; the mouse's side buttons and the keyboard's Back key do the same. A window a page opens – a sign-in, a post opened with a middle click – has its own: `Alt+←`, `Alt+→`, `F5`, and a menu under `Alt` that can move a page of the service into the account view |
 | **Downloads** | a file from a conversation says when it has landed and offers the folder it landed in; Settings holds the folder and whether you are asked each time |
@@ -118,10 +119,21 @@ Facebook stay quiet until you allow them in that account's settings, because a w
 notifies about reactions, groups, pages and birthdays, not only about somebody writing to
 you. You can silence a messenger the same way.
 
-**Every account is loaded and stays loaded**, which costs about 250 MB each once its page is
-up – measured at 754 MB for one account, 1266 MB for three and 1760 MB for five. That is
-deliberate: an account that is not loaded cannot notify you or count anything, which is the
-whole point. Five accounts want about two gigabytes; decide accordingly.
+**Every account is loaded and stays loaded unless you put it to sleep.** An awake account costs
+memory: about 250 MB each by the first measurement (754 MB for one account, 1266 MB for three,
+1760 MB for five), and more by the app's own log in October 2026 – 300 to 510 MB of private
+memory for a WhatsApp, 320 to 410 for Messenger, about 700 for Facebook. That is deliberate: an
+account that is not loaded cannot notify you or count anything, which is the whole point.
+
+When memory runs short during heavy work, you can put an account to sleep by hand. **A sleeping
+account delivers no notification and shows no count** until you wake it, and the rail marks it
+as asleep instead of showing a number. Nothing puts an account to sleep on its own, every account
+wakes when the app starts, and after the computer wakes or the window comes back from the tray
+the status bar tells you how many accounts are asleep and offers to wake them – it never wakes
+them by itself. Waking loads the page again, still signed in. A notification that arrived before
+the account fell asleep wakes nothing when clicked. Sleeping both WhatsApps and Facebook while
+you work in Messenger should free about 1.3 GB – an estimate from the log, to be replaced by a
+measurement.
 
 > **Going back a version deletes new accounts.** A build that predates LinkedIn and Facebook
 > does not recognise them, silently drops them when it reads `accounts.json`, and the next

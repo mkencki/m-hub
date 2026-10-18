@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('mHub', {
   reloadAccount: (accountId, command) => ipcRenderer.invoke('accounts:reload', accountId, command),
   proceedAnyway: (accountId) => ipcRenderer.invoke('accounts:proceed', accountId),
   openChannelMenu: (accountId) => ipcRenderer.invoke('accounts:menu', accountId),
+  wakeAll: () => ipcRenderer.invoke('accounts:wake-all'),
   navigate: (accountId, direction) => ipcRenderer.invoke('accounts:navigate', accountId, direction),
   onNavState: (listener) => ipcRenderer.on('nav:state', (_event, state) => listener(state)),
   onUnread: (listener) => ipcRenderer.on('unread:changed', (_event, data) => listener(data)),

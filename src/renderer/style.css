@@ -142,6 +142,14 @@ body {
 .channel[aria-selected="true"] .channel-meta { color: var(--muted); }
 .channel-meta em { font-style: normal; color: var(--tint); }
 
+/* A sleeping account: no page, no notification, no count. The tile keeps its colour, dimmed, so
+   the account is still recognisable; the word "asleep" stands where the count would, and the
+   collapsed rail, which has no words, marks the tile "zz" – a dimmed colour alone reads as a
+   colour, not as a state. */
+.channel.asleep .chip { background: color-mix(in srgb, var(--tint) 35%, transparent); }
+.channel.asleep .channel-name { opacity: .7; }
+.channel.asleep .channel-meta { font-style: italic; }
+
 .rail-foot { padding-top: 8px; border-top: 1px solid var(--line); }
 
 .rail-action {
@@ -181,6 +189,17 @@ body {
    to be recognisable from the tile alone, so it gets a bright ring. */
 #rail:not(.expanded) .channel[aria-selected="true"] .chip {
   box-shadow: 0 0 0 2px var(--panel), 0 0 0 3px var(--text);
+}
+#rail:not(.expanded) .channel.asleep .chip::before {
+  content: "zz";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-data);
+  font-size: 10px;
+  letter-spacing: .04em;
+  color: var(--text);
 }
 #rail:not(.expanded) .channel.has-unread .chip::after {
   content: "";

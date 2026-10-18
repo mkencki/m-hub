@@ -75,6 +75,7 @@ zainstalowana tego nie potrzebuje – jej instalator zakłada taki sam skrót.
 | **Klawiatura** | `Ctrl+1`..`Ctrl+9` skaczą do kanału, `Ctrl+;` otwiera makra, `Ctrl+Shift+Space` robi to z dowolnego programu, `F5` lub `Ctrl+R` odświeża oglądane konto, `Ctrl+F5` odświeża je twardo, z pominięciem pamięci podręcznej, `Alt+←` i `Alt+→` cofają w nim i idą dalej |
 | **Zasobnik** | zamknięcie okna zostawia apkę żywą i czuwającą; można to wyłączyć w Ustawieniach. Autostart naprawdę startuje ukryty |
 | **Odzyskiwanie** | konto, które padło, zawisło albo się zdezaktualizowało, proponuje odświeżenie w pasku statusu – nic nie odświeża się samo, bo to skasowałoby na wpół napisaną wiadomość; strona z niezapisanymi zmianami mówi o tym, zamiast po cichu zignorować odświeżenie, i proponuje je porzucić; prawy klik na kanale odświeża, odświeża twardo albo uruchamia od nowa to konto, a ty dalej oglądasz inne |
+| **Usypianie** | prawy klik na kanale usypia to konto albo wszystkie oprócz tego, którego używasz, i przy intensywnej pracy oddaje ich pamięć; uśpione konto nie dostaje powiadomień i zamiast licznika mówi „uśpione”, kliknięcie je budzi, a przy starcie apki budzą się wszystkie – szczegóły w sekcji [Serwisy](#serwisy) |
 | **Linki** | link z rozmowy otwiera się w twojej przeglądarce, a nie w oknie bez paska adresu, niosącym twoją zalogowaną sesję |
 | **Wstecz i dalej** | ← → i ⌂ z lewej strony paska statusu cofają, idą dalej i wracają na stronę startową konta, wyszarzone, gdy nie ma dokąd iść; to samo robią boczne przyciski myszy i klawisz Wstecz na klawiaturze. Okno otwarte przez stronę – logowanie, post otwarty środkowym przyciskiem – ma własną nawigację: `Alt+←`, `Alt+→`, `F5` i menu pod `Alt`, które przenosi stronę serwisu do widoku konta |
 | **Pobieranie** | plik z rozmowy melduje, że się zapisał, i podaje odnośnik do folderu; w Ustawieniach jest folder pobierania i przełącznik „pytaj za każdym razem” |
@@ -111,10 +112,20 @@ milczą, dopóki im nie pozwolisz w ustawieniach tego konta – bo cały serwis 
 o reakcjach, grupach, stronach i urodzinach, a nie tylko o tym, że ktoś do Ciebie pisze.
 Komunikator możesz uciszyć tak samo.
 
-**Każde konto jest wczytane i pozostaje wczytane**, co kosztuje około 250 MB, gdy strona już
-wstanie – zmierzone: 754 MB przy jednym koncie, 1266 MB przy trzech, 1760 MB przy pięciu. To
+**Każde konto jest wczytane i pozostaje wczytane, chyba że je uśpisz.** Obudzone konto kosztuje
+pamięć: około 250 MB według pierwszego pomiaru (754 MB przy jednym koncie, 1266 MB przy trzech,
+1760 MB przy pięciu), a według dziennika samej apki z października 2026 więcej – od 300 do
+510 MB pamięci prywatnej na WhatsAppa, od 320 do 410 na Messengera, około 700 na Facebooka. To
 jest celowe: konto niewczytane nie powiadomi i niczego nie policzy, a po to ta apka istnieje.
-Pięć kont chce około dwóch gigabajtów; decyduj świadomie.
+
+Gdy przy intensywnej pracy brakuje pamięci, możesz ręcznie uśpić konto. **Uśpione konto nie
+dostarcza powiadomień i nie pokazuje licznika**, dopóki go nie obudzisz, a szyna zamiast liczby
+oznacza je jako uśpione. Nic nie usypia konta samo, wszystkie konta budzą się przy starcie apki,
+a po wybudzeniu komputera albo powrocie okna z zasobnika pasek statusu mówi, ile kont śpi,
+i proponuje je obudzić – sam ich nie budzi. Obudzenie wczytuje stronę od nowa, nadal zalogowaną.
+Kliknięcie powiadomienia, które przyszło, zanim konto zasnęło, niczego nie budzi. Uśpienie obu
+WhatsAppów i Facebooka przy pracy w Messengerze powinno zwolnić około 1,3 GB – to szacunek
+z dziennika, który zastąpi pomiar.
 
 > **Cofnięcie wersji kasuje nowe konta.** Build starszy niż LinkedIn i Facebook ich nie zna,
 > po cichu je pomija przy czytaniu `accounts.json`, a najbliższy zapis utrwala skróconą listę.

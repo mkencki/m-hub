@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest'
-import { unreadFromTitle, cleanUserAgent, createView, ViewManager } from '../src/main/views.js'
+import { EventEmitter } from 'node:events'
+import { unreadFromTitle, cleanUserAgent, createView, ViewManager, wakeIndex } from '../src/main/views.js'
 
 describe('cleanUserAgent', () => {
   test('strips the Electron marker', () => {
@@ -65,7 +66,9 @@ describe('createView', () => {
   // of magnitude – measured 2026-08-25: 101 ticks of a 100 ms timer in ten seconds while
   // active, 10 while hidden. Every account but the current one is exactly that, and once
   // the window is in the tray so is the current one. An app whose whole purpose is to
-  // notice messages arriving must not put its accounts to sleep to save a little battery.
+  // notice messages arriving must not slow its awake accounts down to save a little battery.
+  // Putting an account to sleep is something else: the operator's explicit choice to give up
+  // that account's notifications, made by hand, which closes the page outright.
   test('an account in the background keeps running at full speed', () => {
     createView(account, 'UA', () => {}, RecordingView)
 
@@ -343,5 +346,308 @@ describe('which accounts the badge believes', () => {
       ['acc-l', '(12) LinkedIn', false],
     ])
     expect(manager.unreadTotal()).toBe(3)
+  })
+})
+
+describe('putting an account to sleep', () => {
+  // Stand-ins for a WebContentsView, its webContents and the window they sit in. Close is only
+  // written down: a real one ends in Electron destroying the contents, which a test does by hand
+  // with finishClosing() – or never, when the page refused.
+  class FakeContents extends EventEmitter {
+    constructor(view) {
+      super()
+      this.view = view
+      this.closes = []
+      this.destroyed = false
+      this.audible = false
+      this.title = ''
+    }
+    setUserAgent() {}
+    loadURL() {
+      return Promise.resolve()
+    }
+    isDestroyed() {
+      return this.destroyed
+    }
+    isCurrentlyAudible() {
+      return this.audible
+    }
+    getTitle() {
+      return this.title
+    }
+    focus() {}
+    close(options) {
+      this.closes.push({ options: options ?? null, attached: this.view.window.contentView.children.includes(this.view) })
+    }
+    finishClosing() {
+      this.destroyed = true
+      this.emit('destroyed')
+    }
+  }
+
+  class FakeView {
+    constructor(options) {
+      this.options = options
+      this.webContents = new FakeContents(this)
+    }
+    setBounds(bounds) {
+      this.bounds = bounds
+    }
+    setVisible(visible) {
+      this.visible = visible
+    }
+  }
+
+  const fakeWindow = () => {
+    const window = {
+      destroyed: false,
+      isDestroyed: () => window.destroyed,
+      contentView: {
+        children: [],
+        addChildView(view, index) {
+          view.window = window
+          if (index === undefined) window.contentView.children.push(view)
+          else window.contentView.children.splice(index, 0, view)
+        },
+        removeChildView(view) {
+          const at = window.contentView.children.indexOf(view)
+          if (at >= 0) window.contentView.children.splice(at, 1)
+        },
+      },
+    }
+    return window
+  }
+
+  const accounts = ['a', 'b', 'c'].map((key) => ({
+    id: `acc-${key}`,
+    name: `Account ${key}`,
+    platform: 'whatsapp',
+    url: 'https://web.whatsapp.com/',
+  }))
+  const [first, second, third] = accounts
+
+  const setUp = ({ withWindows = [] } = {}) => {
+    const window = fakeWindow()
+    const slept = []
+    const manager = new ViewManager(window, 'UA', () => {}, {
+      View: FakeView,
+      hasChildWindows: (id) => withWindows.includes(id),
+      onSlept: (id) => slept.push(id),
+    })
+    for (const account of accounts) manager.add(account)
+    manager.show(first.id)
+    return { window, manager, slept, viewOf: (id) => manager.views.get(id) }
+  }
+
+  test('the account in front is not put to sleep', () => {
+    const { manager, viewOf } = setUp()
+    const view = viewOf(first.id)
+    expect(manager.sleep(first.id)).toEqual({ ok: false, reason: 'active' })
+    expect(view.webContents.closes).toEqual([])
+  })
+
+  // A call under way on WhatsApp is a page playing sound, and closing it would hang up on somebody.
+  test('an account playing sound is not put to sleep', () => {
+    const { manager, viewOf } = setUp()
+    viewOf(second.id).webContents.audible = true
+    expect(manager.sleep(second.id)).toEqual({ ok: false, reason: 'audible' })
+    expect(viewOf(second.id).webContents.closes).toEqual([])
+  })
+
+  // Closing the view closes the windows its page opened – a sign-in under way, a comment typed in
+  // one – so an account with one open stays awake.
+  test('an account with a window of its own open is not put to sleep', () => {
+    const { manager, viewOf } = setUp({ withWindows: [second.id] })
+    expect(manager.sleep(second.id)).toEqual({ ok: false, reason: 'child-window' })
+    expect(viewOf(second.id).webContents.closes).toEqual([])
+  })
+
+  test('the reason is given before anything is tried, for the menu to show', () => {
+    const { manager, viewOf } = setUp({ withWindows: [third.id] })
+    viewOf(second.id).webContents.audible = true
+    expect(manager.sleepRefusal(first.id)).toBe('active')
+    expect(manager.sleepRefusal(second.id)).toBe('audible')
+    expect(manager.sleepRefusal(third.id)).toBe('child-window')
+    expect(manager.sleepRefusal('acc-missing')).toBe('missing')
+  })
+
+  // Closed first, detached only once Electron says the contents are gone. A page asked first may
+  // refuse, and a view already taken off the window and forgotten would then be a renderer nobody
+  // answers for.
+  test('a sleep closes the page, asking it first, while the view is still in place', () => {
+    const { window, manager, viewOf } = setUp()
+    const view = viewOf(second.id)
+
+    expect(manager.sleep(second.id)).toEqual({ ok: true })
+
+    expect(view.webContents.closes).toEqual([{ options: { waitForBeforeUnload: true }, attached: true }])
+    expect(window.contentView.children).toContain(view)
+    expect(manager.views.get(second.id)).toBe(view)
+    expect(manager.isFallingAsleep(second.id)).toBe(true)
+    expect(manager.isAsleep(second.id)).toBe(false)
+  })
+
+  test('once the contents are gone the account is asleep, its view off the window and forgotten', () => {
+    const { window, manager, slept, viewOf } = setUp()
+    const view = viewOf(second.id)
+    view.webContents.title = '(4) WhatsApp'
+    manager.unreadByAccount()
+
+    manager.sleep(second.id)
+    view.webContents.finishClosing()
+
+    expect(window.contentView.children).not.toContain(view)
+    expect(manager.views.has(second.id)).toBe(false)
+    expect(manager.countsUnread.has(second.id)).toBe(false)
+    expect(manager.isFallingAsleep(second.id)).toBe(false)
+    expect(manager.isAsleep(second.id)).toBe(true)
+    expect(manager.asleepIds()).toEqual([second.id])
+    expect(slept).toEqual([second.id])
+    // Still known by name, for the menu and for waking.
+    expect(manager.accounts.get(second.id)).toEqual(second)
+  })
+
+  // A count a sleeping account last showed is not a count any more: nothing updates it.
+  test('a sleeping account has no count, rather than a count of nothing', () => {
+    const { manager, viewOf } = setUp()
+    viewOf(second.id).webContents.title = '(4) WhatsApp'
+    manager.sleep(second.id)
+    viewOf(second.id).webContents.finishClosing()
+    expect(manager.unreadByAccount()).toEqual({ [first.id]: 0, [third.id]: 0 })
+  })
+
+  test('a page that refuses keeps its account awake and in place', () => {
+    const { window, manager, slept, viewOf } = setUp()
+    const view = viewOf(second.id)
+    manager.sleep(second.id)
+
+    manager.stayAwake(second.id)
+
+    expect(manager.isFallingAsleep(second.id)).toBe(false)
+    expect(manager.isAsleep(second.id)).toBe(false)
+    expect(window.contentView.children).toContain(view)
+    expect(manager.views.get(second.id)).toBe(view)
+    // Destroyed later for another reason – the application quitting – it is not taken for asleep.
+    view.webContents.finishClosing()
+    expect(manager.isAsleep(second.id)).toBe(false)
+    expect(slept).toEqual([])
+  })
+
+  test('an account already asleep, or on its way, is not put to sleep twice', () => {
+    const { manager, viewOf } = setUp()
+    manager.sleep(second.id)
+    expect(manager.sleep(second.id)).toEqual({ ok: false, reason: 'asleep' })
+    viewOf(second.id).webContents.finishClosing()
+    expect(manager.sleep(second.id)).toEqual({ ok: false, reason: 'asleep' })
+    expect(manager.sleep('acc-missing')).toEqual({ ok: false, reason: 'missing' })
+  })
+
+  test('a view on its way out is neither handed out again nor shown', () => {
+    const { manager } = setUp()
+    manager.sleep(second.id)
+    expect(manager.add(second)).toBeNull()
+    expect(manager.show(second.id)).toBe(false)
+    expect(manager.activeId).toBe(first.id)
+  })
+
+  test('a sleeping account cannot be shown until it is woken', () => {
+    const { manager, viewOf } = setUp()
+    manager.sleep(second.id)
+    viewOf(second.id).webContents.finishClosing()
+    expect(manager.show(second.id)).toBe(false)
+    expect(manager.activeId).toBe(first.id)
+  })
+
+  // Waking is a new view on the same partition, put back where the account stands among the awake
+  // ones rather than at the end.
+  test('waking makes a new view, in the place given', () => {
+    const { window, manager, viewOf } = setUp()
+    const old = viewOf(second.id)
+    manager.sleep(second.id)
+    old.webContents.finishClosing()
+
+    const woken = manager.add(second, { index: 1 })
+
+    expect(woken).not.toBe(old)
+    expect(woken.options.webPreferences.partition).toBe('persist:acc-b')
+    expect(window.contentView.children.indexOf(woken)).toBe(1)
+    expect(manager.isAsleep(second.id)).toBe(false)
+    expect(manager.asleepIds()).toEqual([])
+    expect(manager.show(second.id)).toBe(true)
+  })
+
+  test('the waiting caller hears when a sleep has ended either way', async () => {
+    const { manager, viewOf } = setUp()
+    manager.sleep(second.id)
+    const slept = manager.settled(second.id)
+    viewOf(second.id).webContents.finishClosing()
+    await expect(slept).resolves.toBe(true)
+
+    manager.sleep(third.id)
+    const refused = manager.settled(third.id)
+    manager.stayAwake(third.id)
+    await expect(refused).resolves.toBe(false)
+
+    await expect(manager.settled(first.id)).resolves.toBe(false)
+  })
+
+  // A wake can finish reading the account list after the application has started to quit.
+  test('no view is made for a window that is gone', () => {
+    const { window, manager, viewOf } = setUp()
+    manager.sleep(second.id)
+    viewOf(second.id).webContents.finishClosing()
+    window.destroyed = true
+    window.contentView.addChildView = () => {
+      throw new Error('Object has been destroyed')
+    }
+    expect(manager.add(second)).toBeNull()
+  })
+
+  test('a view that goes once the window is gone does not reach for the window', () => {
+    const { window, manager, viewOf } = setUp()
+    manager.sleep(second.id)
+    window.destroyed = true
+    window.contentView.removeChildView = () => {
+      throw new Error('Object has been destroyed')
+    }
+    expect(() => viewOf(second.id).webContents.finishClosing()).not.toThrow()
+  })
+
+  test('a sleeping account removed is forgotten, asleep or not', () => {
+    const { manager, viewOf } = setUp()
+    manager.sleep(second.id)
+    viewOf(second.id).webContents.finishClosing()
+    manager.remove(second.id)
+    expect(manager.isAsleep(second.id)).toBe(false)
+    expect(manager.accounts.has(second.id)).toBe(false)
+  })
+
+  test('an account edited while asleep is known as it is now', () => {
+    const { manager, viewOf } = setUp()
+    manager.sleep(second.id)
+    viewOf(second.id).webContents.finishClosing()
+    manager.update({ ...second, name: 'Renamed' })
+    expect(manager.accounts.get(second.id).name).toBe('Renamed')
+  })
+
+  // The next account in the manager's own order is not the next on the rail once accounts have been
+  // put to sleep and woken – and switching without the renderer left the rail on the old one.
+  test('removing the account in front leaves the choice of the next to the rail', () => {
+    const { manager } = setUp()
+    manager.remove(first.id)
+    expect(manager.activeId).toBeNull()
+  })
+})
+
+describe('where a woken account goes among the views', () => {
+  test('after the awake accounts that stand before it on the rail', () => {
+    const order = ['acc-a', 'acc-b', 'acc-c', 'acc-d']
+    expect(wakeIndex(order, 'acc-c', (id) => id === 'acc-a' || id === 'acc-d')).toBe(1)
+    expect(wakeIndex(order, 'acc-a', () => true)).toBe(0)
+    expect(wakeIndex(order, 'acc-d', (id) => id !== 'acc-d')).toBe(3)
+  })
+
+  test('an account the rail does not know goes to the end', () => {
+    expect(wakeIndex(['acc-a', 'acc-b'], 'acc-x', () => true)).toBe(2)
   })
 })

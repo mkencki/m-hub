@@ -166,7 +166,9 @@ windows.
 Creates a `WebContentsView` per account, attaches its session, sets the `User-Agent`,
 governs geometry as the window resizes, switches the active view, reloads an account in one of
 three ways – ordinary, past the cache, or by restarting its renderer – and steps an account back,
-forward or to its start page. Knows nothing about where the account list came from.
+forward or to its start page. Puts an account to sleep by closing its view, asking the page first,
+and detaches the view only once Electron reports it destroyed; wakes it as a new view on the same
+partition. Knows nothing about where the account list came from.
 
 ### 4.3 `macros` – the macro store
 
@@ -323,7 +325,8 @@ Beyond these rules the application is an ordinary browser with tabs.
 |---|---|
 | `accounts.json` damaged | a backup copy alongside it, start with an empty list, message shown |
 | no network | the view shows the platform's own state; the app does not intervene – F5 or the channel menu brings the page back once the network does |
-| a page refuses to be left (an unsent draft) | said in the status bar by account; an offer to discard only when the refusal answers a reload or a step just asked for |
+| a page refuses to be left (an unsent draft) | said in the status bar by account; an offer to discard only when the refusal answers a reload or a step just asked for, and to sleep anyway when it answers a sleep – the account stays awake until then |
+| an account the operator put to sleep | no notification and no count; the rail says "asleep" where the count would be; the status bar offers to wake it after the computer resumes and when the window comes back, and nothing wakes it by itself |
 | WhatsApp refuses the client (`User-Agent`) | an explicit message suggesting an update |
 | attachment file missing from the store | the macro is marked incomplete, the text still works |
 | file over the limit | refused, with the size and the limit reported |

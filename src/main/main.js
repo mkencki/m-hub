@@ -1011,6 +1011,10 @@ async function createWindow() {
     // loaded, so nothing is routed until the first load has finished, one way or the other –
     // and the same holds for every reload asked for here, which loads the page again while
     // the operator is, as often as not, looking at a different account.
+    //
+    // Those focus events were Electron focusing a view on every navigation, and so were the ones
+    // from a page reloading by itself, which nothing here knew to wait for. createView now turns
+    // that off (focusOnNavigation); this set stays as the second guard it costs nothing to keep.
     settling.add(account.id)
     view.webContents.on('did-stop-loading', () => settling.delete(account.id))
 

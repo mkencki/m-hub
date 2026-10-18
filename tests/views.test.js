@@ -75,6 +75,17 @@ describe('createView', () => {
     expect(RecordingView.lastOptions.webPreferences.backgroundThrottling).toBe(false)
   })
 
+  // Electron 43 focuses a webContents on every main-frame navigation while its window counts as
+  // active (ReadyToCommitNavigation, unless focusOnNavigation is off), and a view behind the
+  // account in front is no exception. Its focus was routed as a clicked notification: a page
+  // reloading itself took the rail, and with the window in the background the switch's focus()
+  // asked Windows for the foreground, which answers by flashing the taskbar button orange.
+  test('a page loading in an account does not take the keyboard', () => {
+    createView(account, 'UA', () => {}, RecordingView)
+
+    expect(RecordingView.lastOptions.webPreferences.focusOnNavigation).toBe(false)
+  })
+
   test('the isolated partition and the sandbox are not given up along the way', () => {
     createView(account, 'UA', () => {}, RecordingView)
 

@@ -54,6 +54,31 @@ export function centreOn(workArea, { width, height }) {
 // Passed by the login item and read back at startup – see setAutoStart.
 export const HIDDEN_FLAG = '--hidden'
 
+// How the window comes into sight – from the tray, a second launch or the macro shortcut.
+//
+// A window the login item started hidden is maximized here, the first time it is asked for, when
+// the layout says maximized. Doing it at the start showed the window at every login: Electron shows
+// a hidden window it is asked to maximize (NativeWindowViews::Maximize, Electron 43.4.1), without
+// the foreground, and the focus given to the account in front then asked Windows for it – the
+// taskbar button flashed orange. maximize() on a hidden window shows it maximized in one step, so
+// asked for later it is still a single movement. Until then the layout must go on saying maximized:
+// a window quit from the tray without ever being seen was never maximized, but was meant to be.
+export function windowRevealer(window, { maximizeWhenShown = false } = {}) {
+  let pending = maximizeWhenShown
+  return {
+    show() {
+      if (window.isVisible()) return
+      if (pending) {
+        pending = false
+        window.maximize()
+      } else {
+        window.show()
+      }
+    },
+    maximized: () => pending || window.isMaximized(),
+  }
+}
+
 const MIN_WIDTH = 800
 const MIN_HEIGHT = 600
 

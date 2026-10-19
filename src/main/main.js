@@ -3,7 +3,7 @@ import path from 'node:path'
 import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { cleanUserAgent, ViewManager, wakeIndex } from './views.js'
-import { loadLayout, saveLayout, centreOn, setAutoStart, isAutoStartOn, acceptHoverReport, HIDDEN_FLAG } from './shell.js'
+import { loadLayout, saveLayout, centreOn, setAutoStart, isAutoStartOn, acceptHoverReport, windowRevealer, HIDDEN_FLAG } from './shell.js'
 import { loadAccounts, PLATFORMS, notificationsAllowed } from './accounts.js'
 import { classify, hostClass } from './navigation.js'
 import { accountMemoryMb, appMemoryMb, processIdsOf } from './account-memory.js'
@@ -76,6 +76,9 @@ app.setAppUserModelId('pl.kencki.msghub')
 Menu.setApplicationMenu(null)
 
 let window
+// Brings the window into sight – see windowRevealer. Every way of asking for the window goes
+// through it, so a window started hidden is maximized whichever way it is first asked for.
+let reveal
 let tray
 let manager
 let clipboardSession
@@ -147,7 +150,10 @@ async function createWindow() {
     webPreferences: { preload: path.join(HERE, '..', 'preload', 'preload.cjs') },
   })
   window.setTitle('M-HUB')
-  if (layout.maximized) window.maximize()
+  // Not when started hidden: Electron shows a hidden window it is asked to maximize, and that is
+  // the window turning up at every login. It is maximized when first asked for instead.
+  reveal = windowRevealer(window, { maximizeWhenShown: startHidden && layout.maximized })
+  if (layout.maximized && !startHidden) window.maximize()
 
   // An account view is a native layer ABOVE the renderer: while it holds focus – which
   // is most of the working time – the keyboard never reaches the main window and the
@@ -484,7 +490,7 @@ async function createWindow() {
       // this file carried on 2026-09-01 pointed at a monitor that was no longer there.
       width: rect.width,
       height: rect.height,
-      maximized: window.isMaximized(),
+      maximized: reveal.maximized(),
       railPinned,
       closeToTray,
       downloadDir,
@@ -1116,7 +1122,7 @@ async function createWindow() {
   // combination, and silence would look exactly like a shortcut that works.
   const claimed = globalShortcut.register(MACRO_SHORTCUT, () => {
     if (!window || window.isDestroyed()) return
-    if (!window.isVisible()) window.show()
+    reveal.show()
     if (window.isMinimized()) window.restore()
     window.focus()
     window.webContents.focus()
@@ -1154,11 +1160,11 @@ function buildTray() {
     // An empty tray icon is INVISIBLE on Windows – it has to be a real image.
     tray = new Tray(nativeImage.createFromPath(TRAY_ICON).resize({ width: 16, height: 16 }))
     tray.setToolTip('M-HUB')
-    tray.on('click', () => (window?.isVisible() ? window.hide() : window?.show()))
+    tray.on('click', () => (window?.isVisible() ? window.hide() : reveal?.show()))
   }
   tray.setContextMenu(
     Menu.buildFromTemplate([
-      { label: tr('trayShow'), click: () => window?.show() },
+      { label: tr('trayShow'), click: () => reveal?.show() },
       {
         label: tr('trayAutoStart'),
         type: 'checkbox',
@@ -1195,7 +1201,7 @@ if (!app.requestSingleInstanceLock()) {
   // Launching again is someone asking to see the app, and usually it is in the tray.
   app.on('second-instance', () => {
     if (!window || window.isDestroyed()) return
-    if (!window.isVisible()) window.show()
+    reveal.show()
     if (window.isMinimized()) window.restore()
     window.focus()
   })

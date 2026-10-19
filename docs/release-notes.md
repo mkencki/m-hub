@@ -1,5 +1,19 @@
 # Release notes
 
+## 0.7.1 – the taskbar button stays quiet
+
+**The taskbar button no longer flashes orange over nothing new, and the account you were using
+stays in front.** When a page in an account behind it loaded again by itself – WhatsApp after an
+update, Facebook on a full page load – the application took that for a clicked notification: it
+switched to that account and asked Windows to bring the window forward, which Windows answers with
+an orange flash while you work in another program. Coming back, you found another account in front.
+A page loading on its own now moves nothing, and a clicked notification still takes you to its
+account.
+
+**Starting with Windows stays in the tray, even with the window last maximized.** The window came up
+at every login anyway – and flashed – when it had been maximized when it was last closed. It now
+stays hidden until you open it, and opens maximized.
+
 ## 0.7.0 – put an account to sleep, and wake it
 
 **Put an account to sleep when memory runs short.** A right click on a channel now offers Put to

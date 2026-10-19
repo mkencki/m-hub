@@ -780,7 +780,26 @@ or `timeout` after 90 s. The account's own memory after the close cannot be read
 being gone; what shrinks is the whole. One lesson came from the tests, not the feature: a load
 gives its view the focus, and a focused view in the background is routed as a clicked
 notification, so a test that blanks every view hands the rail to the last one blanked (run
-39166887625).
+39166887625) – the same focus that made the taskbar flash, 0.7.1 below.
+
+**Focus nobody asked for (0.7.1).** The taskbar button flashed orange with nothing new, twice
+over. Electron 43 focuses a webContents on every navigation of its main frame while its window
+counts as active – `ReadyToCommitNavigation` calls `SetInitialFocus` unless `focusOnNavigation` is
+off – and the account views took that default, the ones behind the account in front included. A
+page loading again by itself took the keyboard, the focus listener took that for a clicked
+notification and switched to it, and with the window in the background the switch's
+`webContents.focus()`, which on Windows activates the window, asked for the foreground; Windows
+answers that by flashing the button, and the operator came back to another account in front.
+`createView` turns the focusing off. The account in front gets the keyboard from `show()`, which
+every choice of the operator goes through, and the `settling` set stays as a second guard; the test,
+a page's own `location.reload()` behind the account in front, was seen failing on CI before the fix
+(run 39178627361). The second flash came at login. The login item starts the application with
+`--hidden`, and a window remembered maximized was maximized right after it was built – and Electron
+shows a hidden window it is asked to maximize (`NativeWindowViews::Maximize`), without the
+foreground, so the focus given to the account in front asked for it again. `windowRevealer` in
+`shell.js` holds the maximize back until the window is first asked for – from the tray, its menu, a
+second launch or the macro shortcut – and keeps the layout saying maximized until then, for a window
+quit from the tray unseen (run 39233805493 before the fix).
 
 ## 10. Tests
 

@@ -167,9 +167,10 @@ test('three sleeps and wakes leave one download listener and a gated view', asyn
     // The woken view loads the real service. Off it again before the next sleep, so the close meets
     // a page of this test's choosing and not whatever the service's page does on a runner.
     await blankTheViews(electronApp)
-    // A load gives its view the focus, and a background view taking the focus is routed as a clicked
-    // notification (notification-routing.spec.js) – blanking every view hands the rail to whichever
-    // came last. The operator's account is chosen again, as in beforeEach.
+    // The operator's account is chosen again, as in beforeEach. Blanking every view used to hand the
+    // rail to whichever came last: every load gave its view the focus, and a background view taking
+    // the focus is routed as a clicked notification (notification-routing.spec.js). createView turns
+    // that focusing off now; the click stays so this test does not rest on it.
     await channel('acc-one').dispatchEvent('click')
     await expect(channel('acc-one')).toHaveAttribute('aria-selected', 'true')
   }

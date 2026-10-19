@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { loadLayout, saveLayout, centreOn, setAutoStart, isAutoStartOn, acceptHoverReport, DEFAULT_LAYOUT } from '../src/main/shell.js'
+import { loadLayout, saveLayout, centreOn, setAutoStart, isAutoStartOn, acceptHoverReport, windowRevealer, DEFAULT_LAYOUT } from '../src/main/shell.js'
 
 let file, dir
 
@@ -325,5 +325,69 @@ describe('centring the window on the primary monitor', () => {
       width: 1280,
       height: 752,
     })
+  })
+})
+
+// The login item starts the application hidden. Maximized at the start, the window was shown at
+// every login – Electron shows a hidden window it is asked to maximize – so a window waiting to be
+// maximized is maximized the first time it is asked for, and not a moment before.
+describe('bringing the window into sight', () => {
+  const hiddenWindow = () => {
+    const window = {
+      calls: [],
+      visible: false,
+      maximizedNow: false,
+      isVisible: () => window.visible,
+      isMaximized: () => window.maximizedNow,
+      maximize: () => {
+        window.calls.push('maximize')
+        window.visible = true
+        window.maximizedNow = true
+      },
+      show: () => {
+        window.calls.push('show')
+        window.visible = true
+      },
+    }
+    return window
+  }
+
+  test('a window waiting to be maximized is maximized when first asked for, then shown as it is', () => {
+    const window = hiddenWindow()
+    const reveal = windowRevealer(window, { maximizeWhenShown: true })
+    expect(window.calls).toEqual([])
+
+    reveal.show()
+    window.visible = false
+    reveal.show()
+
+    expect(window.calls).toEqual(['maximize', 'show'])
+  })
+
+  test('a window already in sight is left as it is', () => {
+    const window = hiddenWindow()
+    window.visible = true
+    windowRevealer(window, { maximizeWhenShown: true }).show()
+
+    expect(window.calls).toEqual([])
+  })
+
+  // Quit from the tray without ever being shown, the window was never maximized either. What the
+  // operator chose is still maximized, and that is what the layout has to keep.
+  test('until it is shown, the layout still says maximized', () => {
+    const window = hiddenWindow()
+    const reveal = windowRevealer(window, { maximizeWhenShown: true })
+
+    expect(reveal.maximized()).toBe(true)
+  })
+
+  test('a window not waiting for anything says what it is', () => {
+    const window = hiddenWindow()
+    const reveal = windowRevealer(window)
+
+    reveal.show()
+
+    expect(window.calls).toEqual(['show'])
+    expect(reveal.maximized()).toBe(false)
   })
 })

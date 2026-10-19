@@ -47,6 +47,13 @@ export function createView(account, defaultUA, onError = () => {}, View = WebCon
       // exactly that, and once the window goes to the tray so is the current one, which
       // is the state this application exists to be useful in.
       backgroundThrottling: false,
+      // Electron focuses a webContents on every navigation of its main frame while the window
+      // counts as active, and a view behind the account in front was no exception: a page
+      // reloading by itself took the keyboard, the focus listener took that for a clicked
+      // notification and switched to it, and with the window in the background the switch asked
+      // Windows for the foreground – the taskbar button flashed orange over nothing new. The
+      // account in front gets the keyboard from show(), which the operator's choice goes through.
+      focusOnNavigation: false,
     },
   })
   // No name here on purpose: the string this receives has already been through

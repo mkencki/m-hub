@@ -89,6 +89,36 @@ test('a view taking focus makes its account the current one', async () => {
   expect(heights[1]).toBeGreaterThan(0)
 })
 
+// A page loads again on its own – WhatsApp after an update, Facebook on a full page load – and
+// Electron focuses a webContents on every navigation of its main frame while the window counts as
+// active, a view behind the account in front included. That focus is no clicked notification. Taken
+// for one, it moved the rail to the reloading account and, with the window in the background, the
+// switch asked Windows for the foreground, which flashed the taskbar button orange instead. The
+// reload is the page's own here, through executeJavaScript, so nothing in the application knows of it.
+test('a page loading on its own behind the account in front does not take its place', async () => {
+  await electronApp.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0]
+    window.show()
+    window.focus()
+  })
+  await focusView(0)
+  expect(await selectedChannel()).toBe('acc-one')
+
+  await electronApp.evaluate(
+    ({ BrowserWindow }) =>
+      new Promise((landed) => {
+        const contents = BrowserWindow.getAllWindows()[0].contentView.children[1].webContents
+        contents.once('did-stop-loading', landed)
+        contents.executeJavaScript('location.reload()').catch(() => {})
+      }),
+  )
+  // A switch it caused would take an IPC round trip to the renderer and back; it has by now.
+  await page.waitForTimeout(500)
+
+  expect(await selectedChannel()).toBe('acc-one')
+  expect(await viewHeights()).toEqual([expect.any(Number), 0])
+})
+
 // show() ends by focusing the view it just showed, so answering a focus event with a switch
 // is one careless line away from a loop that never stops.
 test('a view that is already current asks for nothing', async () => {

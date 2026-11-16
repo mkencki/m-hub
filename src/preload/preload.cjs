@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('mHub', {
   listAccounts: () => ipcRenderer.invoke('accounts:list'),
+  asleepAccounts: () => ipcRenderer.invoke('accounts:asleep'),
   addAccount: (data) => ipcRenderer.invoke('accounts:add', data),
   removeAccount: (accountId) => ipcRenderer.invoke('accounts:remove', accountId),
   unusedColor: () => ipcRenderer.invoke('accounts:unused-color'),
@@ -27,7 +28,7 @@ contextBridge.exposeInMainWorld('mHub', {
   reloadAccount: (accountId, command) => ipcRenderer.invoke('accounts:reload', accountId, command),
   proceedAnyway: (accountId) => ipcRenderer.invoke('accounts:proceed', accountId),
   openChannelMenu: (accountId) => ipcRenderer.invoke('accounts:menu', accountId),
-  wakeAll: () => ipcRenderer.invoke('accounts:wake-all'),
+  wakeReminded: () => ipcRenderer.invoke('accounts:wake-reminded'),
   navigate: (accountId, direction) => ipcRenderer.invoke('accounts:navigate', accountId, direction),
   onNavState: (listener) => ipcRenderer.on('nav:state', (_event, state) => listener(state)),
   onUnread: (listener) => ipcRenderer.on('unread:changed', (_event, data) => listener(data)),

@@ -127,7 +127,8 @@ answers that, and it is only acceptable as the opt-out it is:
 - **Visible.** The rail marks a sleeping account as asleep where its count would be. A blank
   there would read as "nothing waiting", which a sleeping account cannot know.
 - **Every account wakes at the start.** Sleep is meant for a spell of heavy work, not for good,
-  and does not survive a restart.
+  and does not survive a restart – unless the account is set to start asleep (amended
+  2026-11-16, below).
 - **Offered back, never woken behind the operator's back.** The application lives in the tray
   and a laptop resumes rather than restarts, so the start alone would not stop an account being
   forgotten for days. After the computer wakes, and when the window comes back to the front, the
@@ -137,6 +138,25 @@ answers that, and it is only acceptable as the opt-out it is:
   partition: the sign-in, cookies and storage survive, the page starts from its address. A
   notification shown before the account fell asleep wakes nothing when clicked – the page it came
   from is gone.
+
+*Amended 2026-11-16, by the operator's decision.* **An account can be set to start asleep.**
+Putting the same accounts to sleep by hand after every start is a choice made every day, and a
+choice made every day is a setting. It lives in the account's own settings, next to its
+notifications, and its label says what it costs: no notifications until the account is chosen.
+Each rule above holds, with one change:
+
+- **Still manual.** Nothing but the operator decides it, account by account; the setting only
+  keeps the decision across starts. An account added while the application runs is created awake
+  whatever the setting says – it is added to be signed in to.
+- **Every account wakes at the start, except the ones set to start asleep,** which get no view
+  until chosen. With every account set so, the first wakes anyway: something has to be in front,
+  the rule the rail already keeps when the account in front goes.
+- **Offered back, except by its setting.** The reminder neither counts such an account nor wakes
+  it: it is asleep by choice, not forgotten. Taken off the setting while asleep, it is counted
+  again. The tray's Wake all accounts wakes it with the rest – there the operator asks for all.
+
+The tray carries Put all but the current account to sleep and Wake all accounts, so the operator's
+own scenario needs no window.
 
 What sleeping frees is an estimate until 0.7.0 has been used: about what the account cost awake,
 released up to half a minute after the close while a service worker keeps the process alive.
@@ -224,6 +244,13 @@ Everything lives in the application data directory (`app.getPath('userData')`).
 means losing the session, so the interface does not allow editing it. `platform` selects the
 default address and icon; `url` can be overridden by hand.
 
+The operator's choices about an account are written only once made, and absent means the
+default, so a file written before a choice existed keeps working as it did:
+`notifications` (`true`/`false`, default per platform – section 2), `startAsleep` (`true`/`false`,
+default `false` – section 3) and, since 0.8.0, `microphone` and `camera` (`"ask"`, `"allow"` or
+`"block"`, default `"ask"` – section 7). A device choice outside those three reads as absent:
+never as a yes.
+
 > Schema version 1 used Polish key names (`wersja`, `konta`, `nazwa`, `platforma`, `kolor`),
 > because the app began as a private tool. Both spellings are accepted on read and version 2
 > is written back on the next save, so upgrading costs nobody their accounts. See
@@ -275,7 +302,9 @@ WhatsApp's own limits and above a typical instructional video.
 3. Restore the window size and position and the last active channel.
 4. Inactive views load in the background so notifications work for every account – including
    one the operator had put to sleep before the restart, since sleep lasts until the next start
-   at most (section 3, amended 2026-10-17).
+   at most (section 3, amended 2026-10-17). An account set to start asleep is the exception: it
+   gets no view until it is chosen, and the account in front is the first one not set so
+   (section 3, amended 2026-11-16).
 
 ### 6.2 Using a macro
 
@@ -309,6 +338,18 @@ for any purpose, attachments included.
 
 Beyond these rules the application is an ordinary browser with tabs.
 
+What a page may use is decided per account, in the account's own settings: notifications
+(section 2) and, since 0.8.0, the microphone and the camera. The settings speak for the account's
+service, so a device goes only to a page of the service itself – judged by the address of the page
+as a whole, not of a frame inside it – and never to a sign-in page or a window opened for somewhere
+else. A page asking for a device its account has not decided about gets a question naming the
+account and the device – Allow, Block or Not now – and only while that account is in front: a
+request from an account in the background is refused this once and stays undecided, because a
+question naming an account the operator is not looking at would come out of nowhere. Allow and
+Block are kept in `accounts.json`; Not now is not. A page of the service in front may take the
+whole screen when it asks, which it can only do in answer to a click, and Esc gives it back.
+Every other permission is refused.
+
 > **Generalised 2026-08-25, alongside the *Whole services* amendment in section 2.** Rules
 > 7.2 and 7.3 were written naming WhatsApp, because at the time WhatsApp was the only page
 > whose internals anyone would have been tempted to reach into. Now that an account may
@@ -327,6 +368,8 @@ Beyond these rules the application is an ordinary browser with tabs.
 | no network | the view shows the platform's own state; the app does not intervene – F5 or the channel menu brings the page back once the network does |
 | a page refuses to be left (an unsent draft) | said in the status bar by account; an offer to discard only when the refusal answers a reload or a step just asked for, and to sleep anyway when it answers a sleep – the account stays awake until then |
 | an account the operator put to sleep | no notification and no count; the rail says "asleep" where the count would be; the status bar offers to wake it after the computer resumes and when the window comes back, and nothing wakes it by itself |
+| an account set to start asleep | no view at the start, the rail says "asleep"; the reminder neither mentions it nor wakes it; chosen, or woken from the tray, it wakes like any other |
+| a page asks for the microphone or the camera | a page that is not the service's own is refused and nobody is asked; otherwise the account's answer when it has one – a blocked device refuses the whole request – or a question naming the account and the device, asked only while that account is in front, and in the background a refusal this once with nothing kept; refusals and answers are logged, a device used as allowed is not |
 | WhatsApp refuses the client (`User-Agent`) | an explicit message suggesting an update |
 | attachment file missing from the store | the macro is marked incomplete, the text still works |
 | file over the limit | refused, with the size and the limit reported |
@@ -800,6 +843,64 @@ foreground, so the focus given to the account in front asked for it again. `wind
 `shell.js` holds the maximize back until the window is first asked for – from the tray, its menu, a
 second launch or the macro shortcut – and keeps the layout saying maximized until then, for a window
 quit from the tray unseen (run 39233805493 before the fix).
+
+**Starting asleep (0.8.0).** `planStart` in `sleep.js` decides which accounts start asleep and
+which one is in front: the first account not set to start asleep, or the first account when every
+one is. `ViewManager.addAsleep` makes an account known and asleep without a view, so the channel
+menu, a wake and a removal treat it as any sleeping account, and `onSlept` hears nothing, since
+nothing fell asleep. The rail makes its first choice of the account in front before the counts
+arrive – they come with the first `unread:changed`, after the page has loaded – and the counts are
+what told it which accounts sleep, so it chose the first account and woke it; `accounts:asleep`
+answers that before the first choice. The reminder takes an `exempt` predicate, asked at the moment
+of reminding and never remembered, so an account taken off the setting while asleep is counted
+again from when it fell asleep. A reminder's Wake goes through `accounts:wake-reminded`, which
+leaves accounts set to start asleep alone; the tray's Wake all accounts wakes every one. What the
+tray offers is `trayMenuTemplate` in `tray-menu.js`. Its two items about sleep are switched on and
+off in place from `refreshBadge`, which every sleep and wake passes through, rather than the menu
+being rebuilt: a menu replaced while open would be pulled out from under the click. The end-to-end
+tests catch the tray's menu where it is handed to the tray, since it is never popped up.
+
+**The microphone, the camera and the whole screen (0.8.0).** Until 0.8.0 the permission handler
+granted notifications by the account's setting and refused everything else, so a voice note or a
+call failed with nothing said. `media.js` turns Chromium's `mediaTypes` into the settings' devices
+and decides. First, whose page is asking: the settings speak for the account's service, and the
+account's session also holds sign-in pages and windows opened for elsewhere, so the address of the
+top-level document of the asking webContents goes through `hostClass`, and anything but `service`
+is refused as `foreign` before the settings are read. The top-level page, not the asking frame, is
+how Chromium itself attributes the permission: a frame gets a device only when its page delegates
+it (Permissions Policy), and the question names the page. `mediaDecision` refuses unless told
+`fromService: true`, so a caller that forgets to ask cannot grant. Then the settings: everything
+allowed is granted, anything blocked refuses the whole request – a page gets all it asked for or
+nothing – and an undecided device is asked about only when the request comes from the account's
+view while it is in front of a visible window with no dialog over it, or from a window the
+account's page opened. A request the settings settle is answered at once. A question waits for any
+other to be answered first and is weighed again from the file when its turn comes, so a second
+request about the same device is settled by the first answer; a request the same as one already
+waiting – the same account and devices, from another frame, since Blink takes one request at a
+time per frame – shares that request's answer instead of queueing a question of its own. What the
+page gets once a question is answered is decided again from the settings as saved, for every
+device it asked for. Anything that throws on the way is a refusal, logged as `media-failed`. The
+question is `dialog.showMessageBox` with Allow, Block and Not now, and Enter and Esc land on Not
+now: a box that appears while the operator types must not be answered yes by the next key. The log
+records refusals (`media-refused`, with `foreign`, `blocked`, `background` or `unknown`) and
+answers (`media-answered`), never a device used as allowed.
+
+The whole screen is granted without a question to a page of the service in front: the account's
+view while its account is in front, or a window its page opened, which goes full screen by itself.
+Electron takes the main window full screen when the view's page asks and out of it when the page
+lets go, knows nothing of the account views, and offers nothing public that makes a page let go.
+So `main.js` keeps `screenHolders` – the accounts whose page holds the screen, from
+`enter-html-full-screen` to `leave-html-full-screen` – and `syncScreen` keeps the window full
+screen exactly while the account in front is one of them, with `fitViews` giving that view the
+window's whole content area. Going to another account lends the window back, since a page out of
+sight holding it would leave a window with no title bar and no way back but that page; coming back
+gives the page the screen it still believes it has. A sleep, a removal and a renderer gone take the
+account out of the set. Full screen hides whether the window was maximized – `isMaximized()` says
+no until it comes back – so that is noted just before the window goes full screen and saved in its
+place. The end-to-end tests use Chromium's fake devices (`--use-fake-device-for-media-stream`), so
+the application's handler is the only thing answering, catch the question in the main process, and
+serve the asking page under the service's own address from the account's session, so the network
+is never touched.
 
 ## 10. Tests
 

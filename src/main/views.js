@@ -149,6 +149,15 @@ export class ViewManager {
     return view
   }
 
+  // An account set to start asleep: known like any other – the channel menu names it, a wake finds
+  // it – and asleep from the first moment, with no view, no page and nothing to close. onSlept hears
+  // nothing, since nothing fell asleep. add() wakes it as it wakes any sleeping account.
+  addAsleep(account) {
+    if (this.views.has(account.id)) return
+    this.accounts.set(account.id, account)
+    this.asleep.add(account.id)
+  }
+
   // An edit keeps the view and its sign-in – the id does not change – but the name and the
   // rest are read from here by whatever names the account later: the channel menu, a download
   // message, a wake. Only an account already known is replaced; adding one is add()'s job.

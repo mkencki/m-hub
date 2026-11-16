@@ -576,6 +576,20 @@ button:disabled { opacity: .3; cursor: default; }
 }
 .switch-row input[type="checkbox"] { width: auto; margin: 0; flex: none; }
 
+/* A device and what its page gets when it asks for it: the name on the left, the choice on the
+   right, a line each. Like .switch-row, the class has to outrank "dialog label" and "dialog
+   select" on specificity – a column with a full-width select under its name is what they give
+   otherwise. .choice-hint comes after .hint in this file, so its margin wins at equal weight. */
+.choice-row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 6px 16px 4px;
+}
+.choice-row select { width: auto; min-width: 150px; }
+.choice-hint { margin: 0 16px 10px; }
+
 /* The download folder: a caption, the path it resolves to, and the button that changes it.
    A path is the one piece of text here that can be arbitrarily long, so it takes the slack
    and loses its middle rather than pushing the button off the dialog. */

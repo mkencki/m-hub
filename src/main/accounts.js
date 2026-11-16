@@ -135,10 +135,41 @@ function normalizeAccount(raw) {
     platform: raw?.platform ?? raw?.platforma,
     url: raw?.url,
     color: raw?.color ?? raw?.kolor,
-    // Left undefined when the file does not carry it, so notificationsAllowed can tell
-    // "never chosen" from "chosen as no".
-    ...(raw?.notifications === undefined ? {} : { notifications: Boolean(raw.notifications) }),
+    ...accountSettings(raw),
   }
+}
+
+// The devices a page can ask for that an account has a say about, and what it can say. "ask" is
+// also what an account with no answer yet gets, so an answer is only ever one somebody gave.
+export const MEDIA_DEVICES = ['microphone', 'camera']
+export const MEDIA_CHOICES = ['ask', 'allow', 'block']
+
+// The choices an operator makes about an account beyond its name and colour – from the file, from
+// the form adding it, from the form editing it. Each is written only when it was said: absent is
+// not the same as off, since an accounts.json written before a setting existed has no such field,
+// and those accounts keep behaving as they always did. A device choice that is not one of the
+// choices is left out rather than turned into one.
+export function accountSettings(raw) {
+  return {
+    ...(raw?.notifications === undefined ? {} : { notifications: Boolean(raw.notifications) }),
+    ...(raw?.startAsleep === undefined ? {} : { startAsleep: Boolean(raw.startAsleep) }),
+    ...Object.fromEntries(
+      MEDIA_DEVICES.filter((device) => MEDIA_CHOICES.includes(raw?.[device])).map((device) => [device, raw[device]]),
+    ),
+  }
+}
+
+// What an account's page gets when it asks for a device: the operator's answer, or the question.
+export function mediaChoice(account, device) {
+  return MEDIA_DEVICES.includes(device) && MEDIA_CHOICES.includes(account?.[device]) ? account[device] : 'ask'
+}
+
+// The answer to a question the application asked about a device, written into the account just as
+// the operator would have set it in the account's settings. Nothing else about the account moves.
+export function rememberMediaChoice(accounts, id, devices, choice) {
+  if (!MEDIA_CHOICES.includes(choice)) return accounts
+  const answered = Object.fromEntries(devices.filter((device) => MEDIA_DEVICES.includes(device)).map((device) => [device, choice]))
+  return accounts.map((account) => (account.id === id ? { ...account, ...answered } : account))
 }
 
 // A messenger notifies when somebody writes to you. A whole service notifies about
@@ -167,8 +198,9 @@ export function validateAccount(account) {
   return errors
 }
 
-// Only what the operator sees changes: the name and the channel colour. The id stays put
-// for the reason above – fixing a typo in a name must not sign the account out.
+// Only what the operator sees changes: the name, the channel colour and the choices the form
+// holds. The id stays put for the reason above – fixing a typo in a name must not sign the
+// account out.
 export function updateAccount(accounts, id, changes) {
   const index = accounts.findIndex((a) => a.id === id)
   if (index === -1) return { ok: false, errors: [{ code: 'validationNoSuchAccount', params: {} }] }
@@ -177,9 +209,9 @@ export function updateAccount(accounts, id, changes) {
     ...accounts[index],
     name: String(changes?.name ?? '').trim(),
     color: changes?.color ?? accounts[index].color,
-    // An update that says nothing about this must not reset a choice already made – the same
+    // An update that says nothing about a choice must not reset one already made – the same
     // rule a macro save had to learn about its tags.
-    ...(changes?.notifications === undefined ? {} : { notifications: Boolean(changes.notifications) }),
+    ...accountSettings(changes),
   }
   const errors = validateAccount(updated)
   if (errors.length) return { ok: false, errors }

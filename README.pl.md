@@ -73,9 +73,10 @@ zainstalowana tego nie potrzebuje – jej instalator zakłada taki sam skrót.
 | **Załączniki** | PDF i mp4 **kopiowane do magazynu aplikacji** – oryginalny plik przestaje być potrzebny; limit 100 MB |
 | **Język** | angielski i polski, przełączany w Ustawieniach bez restartu; wybór przeżywa restart |
 | **Klawiatura** | `Ctrl+1`..`Ctrl+9` skaczą do kanału, `Ctrl+;` otwiera makra, `Ctrl+Shift+Space` robi to z dowolnego programu, `F5` lub `Ctrl+R` odświeża oglądane konto, `Ctrl+F5` odświeża je twardo, z pominięciem pamięci podręcznej, `Alt+←` i `Alt+→` cofają w nim i idą dalej |
-| **Zasobnik** | zamknięcie okna zostawia apkę żywą i czuwającą; można to wyłączyć w Ustawieniach. Autostart naprawdę startuje ukryty |
+| **Zasobnik** | zamknięcie okna zostawia apkę żywą i czuwającą; można to wyłączyć w Ustawieniach. Autostart naprawdę startuje ukryty. Menu zasobnika usypia też wszystkie konta oprócz bieżącego i budzi wszystkie |
 | **Odzyskiwanie** | konto, które padło, zawisło albo się zdezaktualizowało, proponuje odświeżenie w pasku statusu – nic nie odświeża się samo, bo to skasowałoby na wpół napisaną wiadomość; strona z niezapisanymi zmianami mówi o tym, zamiast po cichu zignorować odświeżenie, i proponuje je porzucić; prawy klik na kanale odświeża, odświeża twardo albo uruchamia od nowa to konto, a ty dalej oglądasz inne |
-| **Usypianie** | prawy klik na kanale usypia to konto albo wszystkie oprócz tego, którego używasz, i przy intensywnej pracy oddaje ich pamięć; uśpione konto nie dostaje powiadomień i zamiast licznika mówi „uśpione”, kliknięcie je budzi, a przy starcie apki budzą się wszystkie – szczegóły w sekcji [Serwisy](#serwisy) |
+| **Usypianie** | prawy klik na kanale usypia to konto albo wszystkie oprócz tego, którego używasz, i przy intensywnej pracy oddaje ich pamięć; uśpione konto nie dostaje powiadomień i zamiast licznika mówi „uśpione”, kliknięcie je budzi, a przy starcie apki budzą się wszystkie, chyba że ustawisz kontu „Uruchamiaj uśpione” – szczegóły w sekcji [Serwisy](#serwisy) |
+| **Mikrofon i kamera** | notatka głosowa albo połączenie pyta raz na konto – Zezwól, Blokuj albo Nie teraz – a odpowiedź zostaje w ustawieniach tego konta, gdzie możesz ją zmienić; film albo połączenie może przejść na pełny ekran |
 | **Linki** | link z rozmowy otwiera się w twojej przeglądarce, a nie w oknie bez paska adresu, niosącym twoją zalogowaną sesję |
 | **Wstecz i dalej** | ← → i ⌂ z lewej strony paska statusu cofają, idą dalej i wracają na stronę startową konta, wyszarzone, gdy nie ma dokąd iść; to samo robią boczne przyciski myszy i klawisz Wstecz na klawiaturze. Okno otwarte przez stronę – logowanie, post otwarty środkowym przyciskiem – ma własną nawigację: `Alt+←`, `Alt+→`, `F5` i menu pod `Alt`, które przenosi stronę serwisu do widoku konta |
 | **Pobieranie** | plik z rozmowy melduje, że się zapisał, i podaje odnośnik do folderu; w Ustawieniach jest folder pobierania i przełącznik „pytaj za każdym razem” |
@@ -112,6 +113,14 @@ milczą, dopóki im nie pozwolisz w ustawieniach tego konta – bo cały serwis 
 o reakcjach, grupach, stronach i urodzinach, a nie tylko o tym, że ktoś do Ciebie pisze.
 Komunikator możesz uciszyć tak samo.
 
+**Mikrofon i kamera też są per konto.** Gdy strona pierwszy raz o któreś poprosi – notatka
+głosowa, połączenie – apka zapyta, podając nazwę konta: Zezwól, Blokuj albo Nie teraz. Zezwól
+i Blokuj zostają w ustawieniach tego konta, gdzie możesz je zmienić; Nie teraz odmawia tym razem
+i następnym razem pyta znowu. Konto, którego nie oglądasz, nigdy nie zadaje pytania – jego prośba
+dostaje odmowę tym razem – i tak samo strona, która nie jest stroną serwisu, na przykład strona
+logowania. Film albo połączenie może zająć cały ekran. Esc oddaje okno; przejście do innego konta
+pożycza je do twojego powrotu, a wtedy film znowu ma cały ekran.
+
 **Każde konto jest wczytane i pozostaje wczytane, chyba że je uśpisz.** Obudzone konto kosztuje
 pamięć: około 250 MB według pierwszego pomiaru (754 MB przy jednym koncie, 1266 MB przy trzech,
 1760 MB przy pięciu), a według dziennika samej apki z października 2026 więcej – od 300 do
@@ -126,6 +135,12 @@ i proponuje je obudzić – sam ich nie budzi. Obudzenie wczytuje stronę od now
 Kliknięcie powiadomienia, które przyszło, zanim konto zasnęło, niczego nie budzi. Uśpienie obu
 WhatsAppów i Facebooka przy pracy w Messengerze powinno zwolnić około 1,3 GB – to szacunek
 z dziennika, który zastąpi pomiar.
+
+Jeśli po każdym starcie usypiasz te same konta, zaznacz im w ustawieniach **Uruchamiaj uśpione**:
+startują wtedy uśpione, bez wczytanej strony, dopóki ich nie wybierzesz – a przypomnienia je
+pomijają, bo śpią z twojego wyboru. Gdy tak ustawisz wszystkie konta, pierwsze i tak się budzi.
+Menu zasobnika usypia wszystkie konta oprócz bieżącego i budzi wszystkie, także te ustawione
+na start uśpione.
 
 > **Cofnięcie wersji kasuje nowe konta.** Build starszy niż LinkedIn i Facebook ich nie zna,
 > po cichu je pomija przy czytaniu `accounts.json`, a najbliższy zapis utrwala skróconą listę.

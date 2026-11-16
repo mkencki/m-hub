@@ -95,6 +95,25 @@
       <input type="checkbox" name="notifications" />
       <span data-i18n="allowNotifications">Let this account show notifications</span>
     </label>
+    <label class="switch-row">
+      <input type="checkbox" name="startAsleep" />
+      <span data-i18n="startAsleep">Start asleep – no notifications until you pick it</span>
+    </label>
+    <label class="choice-row"><span data-i18n="microphone">Microphone</span>
+      <select name="microphone">
+        <option value="ask" data-i18n="mediaAsk">Ask</option>
+        <option value="allow" data-i18n="mediaAllow">Allow</option>
+        <option value="block" data-i18n="mediaBlock">Block</option>
+      </select>
+    </label>
+    <label class="choice-row"><span data-i18n="camera">Camera</span>
+      <select name="camera">
+        <option value="ask" data-i18n="mediaAsk">Ask</option>
+        <option value="allow" data-i18n="mediaAllow">Allow</option>
+        <option value="block" data-i18n="mediaBlock">Block</option>
+      </select>
+    </label>
+    <p class="hint choice-hint" data-i18n="mediaHint">Ask: the first time the page wants it, you are asked, and the answer is kept here.</p>
     <p id="account-errors" class="errors"></p>
     <menu>
       <!-- formnovalidate: without it, validating the empty "Name" field blocks cancelling -->

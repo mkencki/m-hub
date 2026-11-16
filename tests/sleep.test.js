@@ -1,5 +1,12 @@
 import { describe, test, expect } from 'vitest'
-import { SleepReminder, REMIND_AFTER_MS, REMIND_EVERY_MS, planSleepOthers, describeSleepOthers } from '../src/main/sleep.js'
+import {
+  SleepReminder,
+  REMIND_AFTER_MS,
+  REMIND_EVERY_MS,
+  planSleepOthers,
+  describeSleepOthers,
+  planStart,
+} from '../src/main/sleep.js'
 import { t } from '../src/shared/i18n.js'
 
 const MINUTE = 60 * 1000
@@ -61,6 +68,75 @@ describe('the reminder that accounts are asleep', () => {
     expect(reminder.due('resume')).toBe(1)
     reminder.woke('acc-b')
     expect(reminder.due('resume')).toBe(0)
+  })
+})
+
+// An account set to start asleep is asleep by the operator's standing choice, not forgotten: the
+// reminder exists for the second case and would only nag about the first.
+describe('the reminder and accounts asleep by choice', () => {
+  const clocked = (chosen) => {
+    const clock = { at: 1_000_000 }
+    const reminder = new SleepReminder({ now: () => clock.at, exempt: (id) => chosen.has(id) })
+    return { clock, reminder }
+  }
+
+  test('an account set to start asleep is never mentioned', () => {
+    const { clock, reminder } = clocked(new Set(['acc-a']))
+    reminder.fellAsleep('acc-a')
+    expect(reminder.due('resume')).toBe(0)
+    clock.at += REMIND_AFTER_MS + REMIND_EVERY_MS
+    expect(reminder.due('show')).toBe(0)
+  })
+
+  test('only the accounts put to sleep by hand are counted', () => {
+    const { reminder } = clocked(new Set(['acc-a']))
+    reminder.fellAsleep('acc-a')
+    reminder.fellAsleep('acc-b')
+    expect(reminder.due('resume')).toBe(1)
+  })
+
+  // The half hour belongs to a sleep the operator might have forgotten, not to one they chose.
+  test('the half hour runs from the oldest sleep that counts', () => {
+    const { clock, reminder } = clocked(new Set(['acc-a']))
+    reminder.fellAsleep('acc-a')
+    clock.at += REMIND_AFTER_MS + MINUTE
+    reminder.fellAsleep('acc-b')
+    clock.at += 10 * MINUTE
+    expect(reminder.due('show')).toBe(0)
+  })
+
+  test('an account no longer set to start asleep is counted again, from when it fell asleep', () => {
+    const chosen = new Set(['acc-a'])
+    const { clock, reminder } = clocked(chosen)
+    reminder.fellAsleep('acc-a')
+    clock.at += REMIND_AFTER_MS + MINUTE
+    chosen.delete('acc-a')
+    expect(reminder.due('show')).toBe(1)
+  })
+})
+
+// Which accounts get no view when the application starts, and which one is in front.
+describe('the start', () => {
+  const account = (key, startAsleep) => ({ id: `acc-${key}`, ...(startAsleep === undefined ? {} : { startAsleep }) })
+
+  test('an account set to start asleep gets no view, and the first awake one is in front', () => {
+    expect(planStart([account('a', true), account('b'), account('c', true)])).toEqual({
+      front: 'acc-b',
+      asleep: ['acc-a', 'acc-c'],
+    })
+  })
+
+  // The rule the rail already keeps when the account in front goes: something has to be in front.
+  test('with every account set to start asleep, the first one wakes', () => {
+    expect(planStart([account('a', true), account('b', true)])).toEqual({ front: 'acc-a', asleep: ['acc-b'] })
+  })
+
+  test('accounts with no such setting, or with it off, all start awake', () => {
+    expect(planStart([account('a'), account('b', false)])).toEqual({ front: 'acc-a', asleep: [] })
+  })
+
+  test('no accounts, nothing in front', () => {
+    expect(planStart([])).toEqual({ front: null, asleep: [] })
   })
 })
 

@@ -267,6 +267,11 @@ async function openAccountForm(account = null) {
     platform.value = account.platform
     form.querySelector('input[name="color"]').value = account.color
     notifications.checked = account.notifications ?? PLATFORM_DEFAULT_NOTIFICATIONS[account.platform] ?? false
+    form.querySelector('input[name="startAsleep"]').checked = Boolean(account.startAsleep)
+    // An answer given when the page asked shows here, where it can be changed – "ask" until then.
+    for (const device of ['microphone', 'camera']) {
+      form.querySelector(`select[name="${device}"]`).value = account[device] ?? 'ask'
+    }
   } else {
     // Two accounts in one colour cancel out the identity signal – suggest a free one.
     form.querySelector('input[name="color"]').value = await window.mHub.unusedColor()
@@ -291,14 +296,17 @@ accountDialog.addEventListener('close', () => {
 document.getElementById('save-account').addEventListener('click', async (event) => {
   event.preventDefault()
   const data = Object.fromEntries(new FormData(accountDialog.querySelector('form')))
+  // An unchecked box is absent from the form data, and absent would mean "not said" – these say no.
+  const choices = {
+    notifications: Boolean(data.notifications),
+    startAsleep: Boolean(data.startAsleep),
+    microphone: data.microphone,
+    camera: data.camera,
+  }
 
   const result = editedAccountId
-    ? await window.mHub.updateAccount(editedAccountId, {
-        name: data.name,
-        color: data.color,
-        notifications: Boolean(data.notifications),
-      })
-    : await window.mHub.addAccount({ ...data, notifications: Boolean(data.notifications) })
+    ? await window.mHub.updateAccount(editedAccountId, { name: data.name, color: data.color, ...choices })
+    : await window.mHub.addAccount({ ...data, ...choices })
 
   if (!result.ok) {
     accountErrors.textContent = describeErrors(result.errors)
@@ -602,10 +610,11 @@ document.getElementById('proceed-anyway').addEventListener('click', async () => 
   await window.mHub.proceedAnyway(accountId)
 })
 
-// Every sleeping account, woken in the background: the operator stays on the account in front.
+// The sleeping accounts the message counted, woken in the background: the operator stays on the
+// account in front. An account set to start asleep is not among them – the message never counted it.
 document.getElementById('wake-all').addEventListener('click', async () => {
   hideMessage()
-  await window.mHub.wakeAll()
+  await window.mHub.wakeReminded()
 })
 
 // The id of a download this process recorded, never a path – main looks up where the file
@@ -692,6 +701,9 @@ async function start() {
     closeToTrayBox.checked = await window.mHub.getCloseToTray()
     applyDownloadSettings(await window.mHub.downloadSettings())
     applyRailState(await window.mHub.railState())
+    // Before the first choice of the account in front: one that started asleep is not chosen, and
+    // choosing it would wake it. The counts that carry this later arrive only once the page is up.
+    asleepIds = new Set(await window.mHub.asleepAccounts())
     await refreshRail()
   } catch (error) {
     showMessage(tr('messageLoadAccountsFailed', { reason: error.message }))
@@ -967,7 +979,14 @@ async function refreshAccountList() {
     edit.className = 'edit-account'
     edit.textContent = tr('edit')
     edit.title = tr('editAccountTitle', { name: account.name })
-    edit.addEventListener('click', () => openAccountForm(account))
+    // Read again on the click rather than taken from when the list was drawn: a page may have had
+    // its question about the microphone answered since, and a form showing the old setting would
+    // put it back on Save.
+    edit.addEventListener('click', async () => {
+      const current = (await window.mHub.listAccounts()).find((candidate) => candidate.id === account.id)
+      if (current) openAccountForm(current)
+      else refreshAccountList()
+    })
 
     const remove = document.createElement('button')
     remove.type = 'button'

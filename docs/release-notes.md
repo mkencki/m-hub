@@ -1,5 +1,31 @@
 # Release notes
 
+## 0.8.0 – accounts that start asleep, and the microphone and camera
+
+**An account can start asleep.** If you put the same accounts to sleep after every start, tick
+Start asleep in the account's settings: the application then starts with that account asleep – no
+page loaded, no memory taken, no notifications – and a click on its channel wakes it, as it wakes
+any sleeping account. With every account set so, the first one wakes anyway, since something has
+to be in front. The reminders leave such an account out: it is asleep by your choice, not
+forgotten, and their Wake leaves it asleep.
+
+**Sleep and wake from the tray.** The tray menu has Put all but the current account to sleep and
+Wake all accounts, so neither needs the window open. Wake all accounts wakes the ones set to start
+asleep too.
+
+**Voice notes and calls can use the microphone and the camera.** Until now every request for
+either was refused without a word, so a voice note or a call failed. The first time a page asks,
+you are asked, by the account's name – "WhatsApp work wants to use the microphone" – with Allow,
+Block or Not now. Allow and Block are kept for that account and can be changed in its settings,
+next to notifications; Not now refuses this once and asks again next time. An account you are not
+looking at is refused without a question, and asks again once you are. Only the service's own page
+speaks for the account: a sign-in page, or a window opened for somewhere else, gets neither the
+devices nor a question.
+
+**Videos and calls go full screen.** A page asking for the whole screen gets it, over the rail and
+the status bar. Esc gives the window back. Going to another account lends it back until you return,
+and then the video has the whole screen again.
+
 ## 0.7.1 – the taskbar button stays quiet
 
 **The taskbar button no longer flashes orange over nothing new, and the account you were using

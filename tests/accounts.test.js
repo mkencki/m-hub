@@ -14,6 +14,9 @@ import {
   SCHEMA_VERSION,
   PLATFORMS,
   notificationsAllowed,
+  accountSettings,
+  mediaChoice,
+  rememberMediaChoice,
 } from '../src/main/accounts.js'
 import { PLATFORM_DEFAULT_NOTIFICATIONS } from '../src/shared/platform-defaults.js'
 
@@ -346,5 +349,101 @@ describe('updating the notification choice', () => {
     const result = updateAccount([withIt], 'acc-fb', { name: 'Facebook', color: '#6586ec' })
 
     expect(result.accounts[0].notifications).toBe(true)
+  })
+})
+
+// Three choices an account carries since 0.8.0: whether it starts asleep, and what its page gets
+// when it asks for the microphone or the camera.
+describe('what an account keeps besides its name', () => {
+  const base = { id: 'acc-wa', name: 'WhatsApp', platform: 'whatsapp', url: 'https://web.whatsapp.com/', color: '#2f7d5b' }
+
+  test('the choices survive a read of the file', async () => {
+    await writeFile(file, JSON.stringify({ version: 2, accounts: [{ ...base, startAsleep: true, microphone: 'allow', camera: 'block' }] }))
+    const { accounts } = await loadAccounts(file)
+    expect(accounts[0]).toMatchObject({ startAsleep: true, microphone: 'allow', camera: 'block' })
+  })
+
+  // A value no version of the application ever wrote is nobody's answer, so it reads as the question
+  // it would otherwise be – never as a yes.
+  test('a device choice the application does not know reads as never made', async () => {
+    await writeFile(file, JSON.stringify({ version: 2, accounts: [{ ...base, microphone: 'always', camera: true }] }))
+    const { accounts } = await loadAccounts(file)
+    expect(accounts[0]).not.toHaveProperty('microphone')
+    expect(accounts[0]).not.toHaveProperty('camera')
+    expect(mediaChoice(accounts[0], 'microphone')).toBe('ask')
+    expect(mediaChoice(accounts[0], 'camera')).toBe('ask')
+  })
+
+  test('an account written before these choices existed starts awake and asks', async () => {
+    await writeFile(file, JSON.stringify({ version: 2, accounts: [base] }))
+    const { accounts } = await loadAccounts(file)
+    expect(accounts[0].startAsleep).toBeUndefined()
+    expect(mediaChoice(accounts[0], 'microphone')).toBe('ask')
+    expect(mediaChoice(accounts[0], 'camera')).toBe('ask')
+  })
+
+  test('a device the application has no setting for is never allowed', () => {
+    expect(mediaChoice({ ...base, microphone: 'allow' }, 'screen')).toBe('ask')
+    expect(mediaChoice(undefined, 'microphone')).toBe('ask')
+  })
+})
+
+describe('updating the start and the devices', () => {
+  const account = { id: 'acc-wa', name: 'WhatsApp', platform: 'whatsapp', url: 'https://web.whatsapp.com/', color: '#2f7d5b' }
+  const named = { name: 'WhatsApp', color: '#2f7d5b' }
+
+  test('starting asleep is stored either way', () => {
+    const on = updateAccount([account], 'acc-wa', { ...named, startAsleep: true })
+    expect(on.accounts[0].startAsleep).toBe(true)
+    const off = updateAccount(on.accounts, 'acc-wa', { ...named, startAsleep: false })
+    expect(off.accounts[0].startAsleep).toBe(false)
+  })
+
+  test('a device choice is stored, and one that is not a choice leaves the old one in place', () => {
+    const chosen = updateAccount([account], 'acc-wa', { ...named, microphone: 'allow', camera: 'block' })
+    expect(chosen.accounts[0]).toMatchObject({ microphone: 'allow', camera: 'block' })
+    const garbled = updateAccount(chosen.accounts, 'acc-wa', { ...named, microphone: 'yes please' })
+    expect(garbled.accounts[0].microphone).toBe('allow')
+  })
+
+  // The same rule as for notifications: an update that says nothing about a choice keeps it.
+  test('an update that does not mention them leaves them alone', () => {
+    const withThem = { ...account, startAsleep: true, microphone: 'block', camera: 'allow' }
+    const result = updateAccount([withThem], 'acc-wa', named)
+    expect(result.accounts[0]).toMatchObject({ startAsleep: true, microphone: 'block', camera: 'allow' })
+  })
+})
+
+describe('what the form may set on an account', () => {
+  test('only the settings it said something about, and only valid ones', () => {
+    expect(
+      accountSettings({ name: 'x', color: '#000000', notifications: false, startAsleep: true, microphone: 'allow', camera: 'sometimes' }),
+    ).toEqual({ notifications: false, startAsleep: true, microphone: 'allow' })
+    expect(accountSettings({})).toEqual({})
+    expect(accountSettings(undefined)).toEqual({})
+  })
+})
+
+// The question about a device is asked once; the answer is written into the account as the operator
+// would have set it in its settings, and nothing else about the account moves.
+describe('remembering an answer about a device', () => {
+  const base = { id: 'acc-wa', name: 'WhatsApp', platform: 'whatsapp', url: 'https://web.whatsapp.com/', color: '#2f7d5b' }
+
+  test('the answer is written for the devices asked about, and for that account only', () => {
+    const accounts = [{ ...base, camera: 'block' }, { ...base, id: 'acc-other' }]
+    const result = rememberMediaChoice(accounts, 'acc-wa', ['microphone'], 'allow')
+    expect(result[0]).toMatchObject({ microphone: 'allow', camera: 'block', name: 'WhatsApp' })
+    expect(result[1]).not.toHaveProperty('microphone')
+    expect(accounts[0]).not.toHaveProperty('microphone')
+  })
+
+  test('both devices at once, when the page asked for both', () => {
+    const [account] = rememberMediaChoice([base], 'acc-wa', ['microphone', 'camera'], 'block')
+    expect(account).toMatchObject({ microphone: 'block', camera: 'block' })
+  })
+
+  test('an answer that is not a choice, or an account that is gone, changes nothing', () => {
+    expect(rememberMediaChoice([base], 'acc-wa', ['microphone'], 'maybe')).toEqual([base])
+    expect(rememberMediaChoice([base], 'acc-gone', ['microphone'], 'allow')).toEqual([base])
   })
 })

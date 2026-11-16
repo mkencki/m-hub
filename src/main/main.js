@@ -4,10 +4,12 @@ import { existsSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { cleanUserAgent, ViewManager, wakeIndex } from './views.js'
 import { loadLayout, saveLayout, centreOn, setAutoStart, isAutoStartOn, acceptHoverReport, windowRevealer, HIDDEN_FLAG } from './shell.js'
-import { loadAccounts, PLATFORMS, notificationsAllowed } from './accounts.js'
+import { loadAccounts, saveAccounts, PLATFORMS, notificationsAllowed, rememberMediaChoice } from './accounts.js'
 import { classify, hostClass } from './navigation.js'
 import { accountMemoryMb, appMemoryMb, processIdsOf } from './account-memory.js'
-import { SleepReminder, planSleepOthers, describeSleepOthers } from './sleep.js'
+import { SleepReminder, planSleepOthers, describeSleepOthers, planStart } from './sleep.js'
+import { requestedDevices, mediaDecision, mediaQuestion, MEDIA_ANSWERS } from './media.js'
+import { trayMenuTemplate } from './tray-menu.js'
 import { commandFor } from './key-commands.js'
 import { UnloadGuard } from './unload-guard.js'
 import { channelMenuTemplate } from './channel-menu.js'
@@ -80,6 +82,12 @@ let window
 // through it, so a window started hidden is maximized whichever way it is first asked for.
 let reveal
 let tray
+// The tray's menu as last built – kept so the items about the accounts can be switched on and off
+// in place (refreshTrayItems).
+let trayMenu = null
+// What the tray can ask of the accounts. Filled in by createWindow, which owns them; the tray is
+// built once it has finished.
+let accountActions = null
 let manager
 let clipboardSession
 let logger
@@ -295,7 +303,10 @@ async function createWindow() {
   // side is ViewManager.sleep; this side writes down what it cost and what came back, and makes a
   // woken account's view the way every other view is made.
   const accountsFile = path.join(dataDir, 'accounts.json')
-  const reminder = new SleepReminder()
+  // An account set to start asleep sleeps by the operator's standing choice. The reminder never
+  // mentions it, and a reminder's Wake does not wake it – see sleep.js and wakeAll.
+  const startsAsleep = (accountId) => Boolean(manager.accounts.get(accountId)?.startAsleep)
+  const reminder = new SleepReminder({ exempt: startsAsleep })
   // Account id -> what was known as its sleep was asked for: the processes behind its page, which
   // are gone by the time it has fallen asleep, and what it and the whole application cost then.
   const sleepNotes = new Map()
@@ -342,6 +353,9 @@ async function createWindow() {
     const note = sleepNotes.get(accountId)
     sleepNotes.delete(accountId)
     settling.delete(accountId)
+    // Its page is gone, and whatever screen it held with it: the window, if it was full screen for
+    // this account, comes back with its title bar over the account's sleep panel.
+    if (screenHolders.delete(accountId)) syncScreen()
     reminder.fellAsleep(accountId)
     logger.write('account-slept', { account: accountId, platform: account?.platform })
     if (note) {
@@ -377,10 +391,19 @@ async function createWindow() {
     return true
   }
 
-  const wakeAll = async () => {
-    for (const accountId of manager.asleepIds()) await wakeAccount(accountId)
+  // Every sleeping account, woken in the background – from the tray, where the operator asks for all
+  // of them. A reminder's Wake leaves out the accounts set to start asleep: the reminder never counted
+  // them, and its button is no way to undo a choice it did not mention.
+  const wakeAll = async ({ includeStartAsleep = true } = {}) => {
+    for (const accountId of manager.asleepIds()) {
+      if (includeStartAsleep || !startsAsleep(accountId)) await wakeAccount(accountId)
+    }
     return true
   }
+
+  // Whether "put all but the current account to sleep" has anyone to put to sleep: an account awake
+  // other than the one in front. Asked by the channel menu and the tray alike.
+  const canSleepOthers = () => [...manager.views.keys()].some((id) => id !== manager.activeId && !manager.isFallingAsleep(id))
 
   // Every account but the one in front, in one click – the operator's own scenario. Each goes
   // through runAccountCommand like a single sleep, so a page that refuses gets its own offer to go
@@ -401,7 +424,8 @@ async function createWindow() {
     return slept
   }
 
-  ipcMain.handle('accounts:wake-all', () => wakeAll())
+  ipcMain.handle('accounts:wake-reminded', () => wakeAll({ includeStartAsleep: false }))
+  accountActions = { sleepOthers, wakeAll: () => wakeAll(), canSleepOthers }
 
   // Where the account being looked at can go, for the buttons on the status bar. Sent rather than
   // asked for, because it changes with every step the page takes, most of them without a load. The
@@ -433,11 +457,24 @@ async function createWindow() {
   // take the channel that was clicked with it – so leaves wait until the menu closes.
   let channelMenuOpen = false
 
+  // Accounts whose page holds the whole screen – a video, a call – from the page asking for it until
+  // it gives it back. Electron takes the window full screen when a page asks and out of it when the
+  // page lets go, and knows nothing of the account views, so the rest is done here (syncScreen):
+  // the window is full screen exactly while the account in front holds the screen, and that
+  // account's view then covers the window's whole content area, over the rail and the status bar.
+  // Going to another account lends the window back without the page knowing – nothing public makes
+  // a page let go – and coming back to it gives it the screen again, as it still believes it has.
+  const screenHolders = new Set()
+
   const fitViews = () => {
     // resize arrives from the window and account changes from the bridge; neither knows
     // whether the window is still there.
     if (window.isDestroyed()) return
     const { width, height } = window.getContentBounds()
+    if (screenHolders.has(manager.activeId)) {
+      manager.setGeometry({ x: 0, y: 0, width, height })
+      return
+    }
     const rail = railExpanded() ? RAIL_EXPANDED : RAIL_COLLAPSED
     manager.setGeometry({
       x: rail + WELL_MARGIN,
@@ -474,6 +511,24 @@ async function createWindow() {
   })
   window.on('resize', fitViews)
 
+  // Whether the window was maximized before a page took it full screen. Full screen hides that –
+  // isMaximized() answers no until the window comes back – and a layout saved meanwhile, on the way
+  // to the tray or out, would forget it. Noted just before the window goes full screen.
+  let maximizedBeforeScreen = false
+  const noteBeforeScreen = () => {
+    if (!window.isFullScreen()) maximizedBeforeScreen = reveal.maximized()
+  }
+
+  const syncScreen = () => {
+    if (window.isDestroyed()) return
+    const wanted = screenHolders.has(manager.activeId)
+    if (window.isFullScreen() !== wanted) {
+      if (wanted) noteBeforeScreen()
+      window.setFullScreen(wanted)
+    }
+    fitViews()
+  }
+
   // acceptHoverReport holds back a leave reported from inside the rail while the window was
   // in the background – but holding one back loses it, and Chromium sends no second one
   // once it considers the pointer gone. So the moment the window is back in front, ask the
@@ -490,7 +545,7 @@ async function createWindow() {
       // this file carried on 2026-09-01 pointed at a monitor that was no longer there.
       width: rect.width,
       height: rect.height,
-      maximized: reveal.maximized(),
+      maximized: window.isFullScreen() ? maximizedBeforeScreen : reveal.maximized(),
       railPinned,
       closeToTray,
       downloadDir,
@@ -541,7 +596,7 @@ async function createWindow() {
       hasChildWindows: Boolean(childWindows.get(accountId)?.size),
       asleep: manager.isAsleep(accountId) || manager.isFallingAsleep(accountId),
       sleepRefusal: manager.sleepRefusal(accountId),
-      canSleepOthers: [...manager.views.keys()].some((id) => id !== manager.activeId && !manager.isFallingAsleep(id)),
+      canSleepOthers: canSleepOthers(),
       tr,
     })
     const actions = {
@@ -690,6 +745,9 @@ async function createWindow() {
     const asleepSuffix = asleep.length ? ` – ${tr('unreadAsleep', { n: asleep.length })}` : ''
     window.setTitle((total ? `M-HUB (${total})` : 'M-HUB') + asleepSuffix)
     tray?.setToolTip((total ? tr('trayUnread', { n: total }) : 'M-HUB') + asleepSuffix)
+    // Every sleep and wake passes through here, so this is where the tray learns whether there is
+    // anyone left to put to sleep, or to wake.
+    refreshTrayItems()
     // The renderer also gets the per-account breakdown – the rail shows a count on each – and which
     // accounts are asleep, so their channels say so instead of showing nothing new.
     if (!window.webContents.isDestroyed()) window.webContents.send('unread:changed', { total, byAccount, asleep })
@@ -918,17 +976,133 @@ async function createWindow() {
     })
   }
 
+  // Who is asking, as far as the account goes: its own view, or a window its page opened. The view is
+  // in front while it is the account shown in a window that is on screen; a window the page opened
+  // is in front by being on screen. Anything else – a view out of sight, a webContents the account
+  // does not know – is not, and a question about it would go over the main window.
+  const requester = (accountId, contents) => {
+    const view = manager.liveView(accountId)
+    if (view && contents?.id === view.webContents.id) {
+      const inFront = manager.activeId === accountId && manager.visible && window.isVisible() && !window.isMinimized()
+      return { isView: true, inFront, parent: window }
+    }
+    for (const child of childWindows.get(accountId) ?? []) {
+      if (!child.isDestroyed() && contents?.id === child.webContents.id) {
+        return { isView: false, inFront: child.isVisible() && !child.isMinimized(), parent: child }
+      }
+    }
+    return { isView: false, inFront: false, parent: window }
+  }
+
+  // Whether the page asking is the service's own, judged by the page as a whole – the address of the
+  // top-level document – the way a browser judges it: a frame inside the page can ask only for what
+  // the page has handed down to it, and the question names the page, not the frame. A sign-in page,
+  // a window opened for somewhere else, or a page that has since gone elsewhere does not speak for
+  // the account, and neither the account's settings nor a question cover it.
+  const showsService = (account, contents) =>
+    Boolean(contents) && !contents.isDestroyed() && hostClass(PLATFORMS[account.platform], contents.getURL()) === 'service'
+
+  // The whole screen, without a question, for the page in front: a page can only ask for it in answer
+  // to a click, and Esc gives it back. A page anywhere else – an account out of sight, a page that is
+  // not the service's own – gets none. A window the page opened goes full screen by itself; only for
+  // the account's view is the main window noted first, because that is the window about to go.
+  const mayHoldScreen = (account, contents) => {
+    const { isView, inFront } = requester(account.id, contents)
+    if (!inFront || !showsService(account, contents)) return false
+    if (isView) noteBeforeScreen()
+    return true
+  }
+
+  // A request for the microphone or the camera weighed against the account as it is in the file at
+  // this moment, so an answer given a moment ago, here or in Settings, already counts – see media.js
+  // for the rules. Only refusals and answers are written down: a device used as allowed needs no
+  // explaining, and the log is not a record of who called whom.
+  const weighMedia = async (accountId, contents, devices) => {
+    const { accounts } = await loadAccounts(accountsFile)
+    const account = accounts.find((candidate) => candidate.id === accountId)
+    if (!account || window.isDestroyed()) return { grant: false }
+    const { inFront, parent } = requester(accountId, contents)
+    const decision = mediaDecision({ devices, account, inFront, fromService: showsService(account, contents) })
+    if (decision.reason) {
+      logger.write('media-refused', { account: accountId, platform: account.platform, code: devices?.join('+') ?? 'unknown', reason: decision.reason })
+    }
+    return { ...decision, account, parent }
+  }
+
+  // The question the settings leave open, and what the page gets once it has been answered.
+  const askAboutMedia = async (accountId, contents, devices) => {
+    // Weighed again: while this waited its turn, the answer to another question may have settled it.
+    const decision = await weighMedia(accountId, contents, devices)
+    if (!decision.ask) return decision.grant === true
+    const { response } = await dialog.showMessageBox(decision.parent, mediaQuestion({ account: decision.account, devices: decision.ask, tr }))
+    const answer = MEDIA_ANSWERS[response] ?? null
+    logger.write('media-answered', { account: accountId, platform: decision.account.platform, code: decision.ask.join('+'), reason: answer ?? 'not-now' })
+    if (!answer) return false
+    // Read again before writing: the question may have stood open while the operator edited accounts.
+    const { accounts: latest } = await loadAccounts(accountsFile)
+    if (!latest.some((candidate) => candidate.id === accountId)) return false
+    const remembered = rememberMediaChoice(latest, accountId, decision.ask, answer)
+    await saveAccounts(accountsFile, remembered)
+    const saved = remembered.find((candidate) => candidate.id === accountId)
+    manager.update(saved)
+    // What the page gets follows from the settings as now saved, for every device it asked for – the
+    // answer covered only those still open – and from the page still being the service's own.
+    return mediaDecision({ devices, account: saved, inFront: true, fromService: showsService(saved, contents) }).grant === true
+  }
+
+  // One question at a time: two at once would stack two boxes over the window. A request the settings
+  // settle is answered at once, without waiting behind a question about something else; one the same
+  // as a request already waiting – pages ask twice – shares that request's answer instead of queueing
+  // a question of its own. Whatever goes wrong on the way is a refusal, written down.
+  const waitingMedia = new Map()
+  let mediaTurns = Promise.resolve()
+  const answerMedia = async (accountId, contents, details) => {
+    try {
+      const devices = requestedDevices(details?.mediaTypes)
+      const decision = await weighMedia(accountId, contents, devices)
+      if (!decision.ask) return decision.grant === true
+      const key = `${accountId}|${devices.join('+')}`
+      if (!waitingMedia.has(key)) {
+        const turn = mediaTurns.then(() => askAboutMedia(accountId, contents, devices))
+        mediaTurns = turn.catch(() => {})
+        waitingMedia.set(key, turn)
+        const done = () => waitingMedia.delete(key)
+        turn.then(done, done)
+      }
+      return await waitingMedia.get(key)
+    } catch (error) {
+      logger.write('media-failed', { account: accountId, reason: error?.code ?? error?.message ?? String(error) })
+      return false
+    }
+  }
+
   const prepareView = (view, account) => {
-    // The account object is re-read rather than captured, so turning notifications off in
-    // Settings takes effect on the next request instead of on the next restart. A page asks
-    // once and remembers the answer, so a refusal also needs the page reloading – which the
-    // status bar offers anyway.
-    view.webContents.session.setPermissionRequestHandler(async (_wc, permission, grant) => {
+    // A new page holds no screen, whatever the page before it in this account did.
+    screenHolders.delete(account.id)
+
+    // What a page may have, asked of the account as it is at the moment of asking – so a change in
+    // Settings takes effect on the next request instead of on the next restart. A page asks for
+    // notifications once and remembers the answer, so a refusal also needs the page reloading, which
+    // the status bar offers anyway. The whole screen is mayHoldScreen's to give, the microphone and
+    // the camera answerMedia's. Anything else is refused.
+    view.webContents.session.setPermissionRequestHandler(async (contents, permission, grant, details) => {
+      if (permission === 'fullscreen') return grant(mayHoldScreen(manager.accounts.get(account.id) ?? account, contents))
+      if (permission === 'media') return grant(await answerMedia(account.id, contents, details))
       if (permission !== 'notifications') return grant(false)
-      const { accounts } = await loadAccounts(path.join(dataDir, 'accounts.json'))
+      const { accounts } = await loadAccounts(accountsFile)
       grant(notificationsAllowed(accounts.find((a) => a.id === account.id) ?? account))
     })
     view.webContents.on('page-title-updated', refreshBadge)
+
+    // The page took the whole screen, or gave it back – see screenHolders.
+    view.webContents.on('enter-html-full-screen', () => {
+      screenHolders.add(account.id)
+      syncScreen()
+    })
+    view.webContents.on('leave-html-full-screen', () => {
+      screenHolders.delete(account.id)
+      syncScreen()
+    })
     attachShortcuts(view.webContents)
     gateNavigation(view, account)
 
@@ -963,6 +1137,8 @@ async function createWindow() {
     // Nor a view put to sleep: the operator closed it, and nothing it reports on the way out is news.
     const goingOrGone = () => manager.isFallingAsleep(account.id) || manager.isAsleep(account.id)
     view.webContents.on('render-process-gone', (_event, details) => {
+      // A page that is gone holds no screen; the one loaded in its place starts without it.
+      if (screenHolders.delete(account.id)) syncScreen()
       if (goingOrGone()) return
       if (manager.takeExpectedExit(account.id)) {
         logger.write('account-restarted', { account: account.id })
@@ -1001,6 +1177,9 @@ async function createWindow() {
       if (manager.isFallingAsleep(account.id)) {
         manager.stayAwake(account.id)
         sleepNotes.delete(account.id)
+        // The tray offered to sleep the others while this one was on its way out; awake, it is one
+        // of them again.
+        refreshTrayItems()
       }
       const action = guard.blocked(account.id)
       logger.write('account-unload-refused', { account: account.id, platform: account.platform, reason: action ?? 'page' })
@@ -1055,18 +1234,40 @@ async function createWindow() {
   // leaves no started line, which is what failing to start ought to look like.
   logger.write('started', { count: accounts.length })
 
-  for (const account of accounts) prepareView(manager.add(account), account)
+  // An account set to start asleep is known, named on the rail and asleep, and costs nothing until it
+  // is chosen – see planStart for the one exception. The reminder hears of it like any other sleep;
+  // the setting is what keeps it quiet, so an account taken off the setting is mentioned again.
+  const start = planStart(accounts)
+  for (const account of accounts) {
+    if (start.asleep.includes(account.id)) {
+      manager.addAsleep(account)
+      reminder.fellAsleep(account.id)
+      logger.write('account-started-asleep', { account: account.id, platform: account.platform })
+    } else {
+      prepareView(manager.add(account), account)
+    }
+  }
   fitViews()
-  if (accounts.length) manager.show(accounts[0].id)
+  if (start.front) manager.show(start.front)
 
   registerAccountChannels({
     dataDir,
     manager,
-    onAccountsChanged: fitViews,
+    onAccountsChanged: () => {
+      fitViews()
+      refreshTrayItems()
+    },
     prepareView,
-    onAccountShown: sendNavState,
+    onAccountShown: (accountId) => {
+      // Going to another account takes the window out of full screen, and coming back to one whose
+      // page still holds the screen takes it in again – see screenHolders.
+      syncScreen()
+      sendNavState(accountId)
+      refreshTrayItems()
+    },
     wakeAccount,
     onAccountRemoved: (accountId) => {
+      if (screenHolders.delete(accountId)) syncScreen()
       reminder.woke(accountId)
       sleepNotes.delete(accountId)
       refreshBadge()
@@ -1153,8 +1354,8 @@ async function createWindow() {
   })
 }
 
-// Rebuilt rather than mutated, because Electron's Menu is immutable once set – this is
-// also how the tray follows a language change.
+// Rebuilt when the language changes, since a label is fixed once its menu is built. What it offers
+// is in tray-menu.js; what each item does is here.
 function buildTray() {
   if (!tray) {
     // An empty tray icon is INVISIBLE on Windows – it has to be a real image.
@@ -1162,33 +1363,39 @@ function buildTray() {
     tray.setToolTip('M-HUB')
     tray.on('click', () => (window?.isVisible() ? window.hide() : reveal?.show()))
   }
-  tray.setContextMenu(
-    Menu.buildFromTemplate([
-      { label: tr('trayShow'), click: () => reveal?.show() },
-      {
-        label: tr('trayAutoStart'),
-        type: 'checkbox',
-        checked: isAutoStartOn(app),
-        click: (item) => setAutoStart(item.checked, app),
-      },
-      {
-        // The log only earns its keep if the person it is for can find it. Everything in it
-        // is written by this app and is safe to send on – see src/main/log.js.
-        label: tr('trayOpenLogs'),
-        click: () => {
-          if (logDir) shell.openPath(logDir)
-        },
-      },
-      { type: 'separator' },
-      {
-        label: tr('trayQuit'),
-        click: () => {
-          quitting = true
-          app.quit()
-        },
-      },
-    ]),
-  )
+  const clicks = {
+    show: () => reveal?.show(),
+    'sleep-others': () => accountActions?.sleepOthers(),
+    'wake-all': () => accountActions?.wakeAll(),
+    'auto-start': (item) => setAutoStart(item.checked, app),
+    'open-logs': () => {
+      if (logDir) shell.openPath(logDir)
+    },
+    quit: () => {
+      quitting = true
+      app.quit()
+    },
+  }
+  const template = trayMenuTemplate({ autoStart: isAutoStartOn(app), ...trayAccountState(), tr })
+  trayMenu = Menu.buildFromTemplate(template.map((item) => (clicks[item.id] ? { ...item, click: clicks[item.id] } : item)))
+  tray.setContextMenu(trayMenu)
+}
+
+function trayAccountState() {
+  return {
+    canSleepOthers: accountActions?.canSleepOthers() ?? false,
+    anyAsleep: Boolean(manager?.asleepIds().length),
+  }
+}
+
+// Whether there is anyone to put to sleep, or to wake, changes with every sleep and wake. Only the
+// items are switched on and off – the menu is not replaced, so one the operator has open is not
+// pulled out from under the click. Electron reads an item's state when the menu opens.
+function refreshTrayItems() {
+  if (!trayMenu) return
+  const { canSleepOthers, anyAsleep } = trayAccountState()
+  trayMenu.getMenuItemById('sleep-others').enabled = canSleepOthers
+  trayMenu.getMenuItemById('wake-all').enabled = anyAsleep
 }
 
 // Two copies over one profile is not a tidiness problem: each keeps its own picture of the

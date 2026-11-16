@@ -160,6 +160,41 @@ export const clickMenuItem = (electronApp, itemId) =>
     last.options.callback?.()
   }, itemId)
 
+// The tray's menu is handed to the tray with setContextMenu and never popped up, so captureMenus
+// does not see it. It is caught where it is handed over instead, and the tray is made to build it
+// again by choosing the language already chosen – a language change is what rebuilds it.
+//
+// setContextMenu is a method of the tray's prototype, like popup() of the menu's, so replacing it
+// there reaches the one tray the application holds.
+export const captureTrayMenu = async (electronApp, page) => {
+  await electronApp.evaluate(({ Tray }) => {
+    const handOver = Tray.prototype.setContextMenu
+    Tray.prototype.setContextMenu = function (menu) {
+      globalThis.__trayMenu = menu
+      return handOver.call(this, menu)
+    }
+  })
+  await page.evaluate(async () => window.mHub.setLanguage(await window.mHub.getLanguage()))
+}
+
+// What the tray menu offers now, as plain values. The menu is not rebuilt as accounts sleep and
+// wake – its items are switched on and off in place – so this reads the state the menu would open
+// with.
+export const trayItems = (electronApp) =>
+  electronApp.evaluate(() => {
+    const menu = globalThis.__trayMenu
+    if (!menu) return null
+    return menu.items.map((item) => ({ id: item.id, label: item.label, enabled: item.enabled }))
+  })
+
+// Clicks an item of the tray menu by id, as clickMenuItem does for a popped-up one.
+export const clickTrayItem = (electronApp, itemId) =>
+  electronApp.evaluate((_electron, id) => {
+    const item = globalThis.__trayMenu?.getMenuItemById(id)
+    if (!item) throw new Error(`the tray menu has no item "${id}"`)
+    item.click()
+  }, itemId)
+
 // Loads an address into a webContents from the main process and settles once the page has arrived
 // and finished loading – read from what the webContents reports, not from the promise loadURL
 // returns. The page being left can report its own unfinished load as aborted, and Electron fails

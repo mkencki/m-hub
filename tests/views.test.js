@@ -648,6 +648,44 @@ describe('putting an account to sleep', () => {
     manager.remove(first.id)
     expect(manager.activeId).toBeNull()
   })
+
+  // An account set to start asleep is asleep from the first moment: no view, no page, nothing to
+  // close – and no word to whoever hears of accounts falling asleep, since none did.
+  test('an account that starts asleep is known and asleep, with no view and no page', () => {
+    const window = fakeWindow()
+    const slept = []
+    const manager = new ViewManager(window, 'UA', () => {}, { View: FakeView, onSlept: (id) => slept.push(id) })
+    manager.addAsleep(first)
+
+    expect(manager.isAsleep(first.id)).toBe(true)
+    expect(manager.asleepIds()).toEqual([first.id])
+    expect(manager.views.has(first.id)).toBe(false)
+    expect(window.contentView.children).toEqual([])
+    expect(manager.accounts.get(first.id)).toBe(first)
+    expect(manager.sleepRefusal(first.id)).toBe('asleep')
+    expect(manager.show(first.id)).toBe(false)
+    expect(slept).toEqual([])
+  })
+
+  test('an account that started asleep wakes like any other', () => {
+    const window = fakeWindow()
+    const manager = new ViewManager(window, 'UA', () => {}, { View: FakeView })
+    manager.addAsleep(first)
+
+    const view = manager.add(first)
+    expect(view).toBeTruthy()
+    expect(manager.isAsleep(first.id)).toBe(false)
+    expect(window.contentView.children).toEqual([view])
+  })
+
+  test('an account that started asleep and is removed is forgotten', () => {
+    const window = fakeWindow()
+    const manager = new ViewManager(window, 'UA', () => {}, { View: FakeView })
+    manager.addAsleep(first)
+    manager.remove(first.id)
+    expect(manager.isAsleep(first.id)).toBe(false)
+    expect(manager.accounts.has(first.id)).toBe(false)
+  })
 })
 
 describe('where a woken account goes among the views', () => {

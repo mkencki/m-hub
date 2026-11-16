@@ -9,6 +9,7 @@ import {
   updateAccount,
   moveAccount,
   unusedColor,
+  accountSettings,
   PLATFORMS,
 } from './accounts.js'
 import {
@@ -36,6 +37,11 @@ export function registerAccountChannels({
 
   ipcMain.handle('accounts:list', async () => (await loadAccounts(accountsFile)).accounts)
 
+  // Which accounts are asleep, for the rail's first choice of the account in front. Afterwards every
+  // change arrives with the counts (unread:changed), but the first of those comes only once the page
+  // has loaded – and choosing an account that started asleep before hearing so would wake it unasked.
+  ipcMain.handle('accounts:asleep', () => manager.asleepIds())
+
   ipcMain.handle('accounts:add', async (_event, data) => {
     const { accounts } = await loadAccounts(accountsFile)
     const platform = PLATFORMS[data.platform]
@@ -45,15 +51,16 @@ export function registerAccountChannels({
       platform: data.platform,
       url: data.url || platform?.url || '',
       color: data.color || '#2f7d5b',
-      // Only written when the form said something; absent means "whatever this platform does
-      // by default", which is what every account written before the setting existed relies on.
-      ...(data.notifications === undefined ? {} : { notifications: Boolean(data.notifications) }),
+      // Only what the form said something about; absent means "whatever this platform does by
+      // default", which is what every account written before a setting existed relies on.
+      ...accountSettings(data),
     }
     const errors = validateAccount(account)
     if (errors.length) return { ok: false, errors }
     await saveAccounts(accountsFile, [...accounts, account])
-    // An account added while the app is running gets the same treatment as accounts
-    // present at startup: notification permission and unread-count tracking.
+    // An account added while the app is running gets the same treatment as accounts present at
+    // startup: notification permission and unread-count tracking. Awake, even when set to start
+    // asleep – it has just been added to be signed in to, and the setting is about the next start.
     prepareView(manager.add(account), account)
     onAccountsChanged()
     return { ok: true }

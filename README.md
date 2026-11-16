@@ -80,9 +80,10 @@ installed build needs none of this: its installer writes the same shortcut.
 | **Attachments** | PDF and mp4 **copied into the app's own storage** – you no longer need the original file; 100 MB limit |
 | **Language** | English and Polish, switched in Settings without restarting; the choice survives a restart |
 | **Keyboard** | `Ctrl+1`..`Ctrl+9` jump to a channel, `Ctrl+;` opens macros, `Ctrl+Shift+Space` does it from any program, `F5` or `Ctrl+R` reloads the account you are looking at, `Ctrl+F5` reloads it past the cache, `Alt+←` and `Alt+→` go back and forward in it |
-| **Tray** | closing the window keeps the app running and noticing; switch it off in Settings. Autostart really does start hidden |
+| **Tray** | closing the window keeps the app running and noticing; switch it off in Settings. Autostart really does start hidden. The tray menu also puts every account but the current one to sleep, and wakes them all |
 | **Recovery** | a crashed, hung or stale account offers a reload in the status bar – nothing reloads by itself, because that would throw away a half-typed message; a page holding unsaved changes says so instead of silently ignoring the reload, and offers to discard them; a right click on a channel reloads, hard-reloads or restarts that account while you go on looking at another |
-| **Sleep** | a right click on a channel puts that account to sleep, or every account but the one you are using, and gives its memory back during heavy work; a sleeping account gets no notifications and says "asleep" instead of a count, a click on it wakes it, and every account wakes when the app starts – see [The services](#the-services) |
+| **Sleep** | a right click on a channel puts that account to sleep, or every account but the one you are using, and gives its memory back during heavy work; a sleeping account gets no notifications and says "asleep" instead of a count, a click on it wakes it, and every account wakes when the app starts unless you set it to start asleep – see [The services](#the-services) |
+| **Microphone and camera** | a voice note or a call asks you once per account – Allow, Block or Not now – and the answer is kept in that account's settings, where you can change it; a video or a call can go full screen |
 | **Links** | a link out of a conversation opens in your own browser, not in a window without an address bar carrying your signed-in session |
 | **Back and forward** | ← → and ⌂ at the left of the status bar go back, forward and to the account's start page, greyed when there is nowhere to go; the mouse's side buttons and the keyboard's Back key do the same. A window a page opens – a sign-in, a post opened with a middle click – has its own: `Alt+←`, `Alt+→`, `F5`, and a menu under `Alt` that can move a page of the service into the account view |
 | **Downloads** | a file from a conversation says when it has landed and offers the folder it landed in; Settings holds the folder and whether you are asked each time |
@@ -119,6 +120,14 @@ Facebook stay quiet until you allow them in that account's settings, because a w
 notifies about reactions, groups, pages and birthdays, not only about somebody writing to
 you. You can silence a messenger the same way.
 
+**The microphone and the camera are per account too.** The first time a page asks for one – a
+voice note, a call – you are asked, by the account's name: Allow, Block or Not now. Allow and
+Block are kept in that account's settings, where you can change them; Not now refuses this once
+and asks again next time. An account you are not looking at never gets to ask – its request is
+refused this once – and neither does a page that is not the service's own, such as a sign-in
+page. A video or a call can take the whole screen. Esc gives the window back; going to another
+account lends it back until you return, and the video has the screen again.
+
 **Every account is loaded and stays loaded unless you put it to sleep.** An awake account costs
 memory: about 250 MB each by the first measurement (754 MB for one account, 1266 MB for three,
 1760 MB for five), and more by the app's own log in October 2026 – 300 to 510 MB of private
@@ -134,6 +143,12 @@ them by itself. Waking loads the page again, still signed in. A notification tha
 the account fell asleep wakes nothing when clicked. Sleeping both WhatsApps and Facebook while
 you work in Messenger should free about 1.3 GB – an estimate from the log, to be replaced by a
 measurement.
+
+If you put the same accounts to sleep after every start, tick **Start asleep** in their settings:
+they then start asleep, with no page loaded, until you pick them – and the reminders leave them
+out, since they are asleep by your choice. With every account set so, the first one wakes anyway.
+The tray menu puts every account but the current one to sleep, and wakes them all, the ones set to
+start asleep included.
 
 > **Going back a version deletes new accounts.** A build that predates LinkedIn and Facebook
 > does not recognise them, silently drops them when it reads `accounts.json`, and the next

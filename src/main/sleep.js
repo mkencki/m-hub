@@ -11,9 +11,14 @@
 export const REMIND_AFTER_MS = 30 * 60 * 1000
 export const REMIND_EVERY_MS = 60 * 60 * 1000
 
+// An account set to start asleep is asleep by the operator's standing choice, not forgotten, so it
+// is `exempt`: never mentioned while the setting holds. Asked at the moment of reminding, never
+// remembered – an account taken off the setting while asleep is mentioned again, as asleep since it
+// fell asleep.
 export class SleepReminder {
-  constructor({ now = () => Date.now() } = {}) {
+  constructor({ now = () => Date.now(), exempt = () => false } = {}) {
     this.now = now
+    this.exempt = exempt
     this.since = new Map()
     this.lastAt = null
   }
@@ -29,15 +34,27 @@ export class SleepReminder {
   // How many sleeping accounts to mention now, or 0 for nothing to say. A reminder given counts
   // against the next one, whichever way it came.
   due(trigger) {
-    const count = this.since.size
-    if (!count) return 0
+    const counted = [...this.since].filter(([accountId]) => !this.exempt(accountId))
+    if (!counted.length) return 0
     const now = this.now()
     if (trigger === 'show') {
-      if (now - Math.min(...this.since.values()) < REMIND_AFTER_MS) return 0
+      if (now - Math.min(...counted.map(([, at]) => at)) < REMIND_AFTER_MS) return 0
       if (this.lastAt !== null && now - this.lastAt < REMIND_EVERY_MS) return 0
     }
     this.lastAt = now
-    return count
+    return counted.length
+  }
+}
+
+// Which accounts the application starts with asleep, and which one is in front once the window is
+// up. An account set to start asleep gets no view until it is chosen – which is the whole point:
+// its page costs nothing until then. Except when every account is set so: something has to be in
+// front, the rule the rail keeps when the account in front goes, and that is the first.
+export function planStart(accounts) {
+  const front = accounts.find((account) => !account.startAsleep) ?? accounts[0] ?? null
+  return {
+    front: front?.id ?? null,
+    asleep: accounts.filter((account) => account.startAsleep && account !== front).map((account) => account.id),
   }
 }
 
